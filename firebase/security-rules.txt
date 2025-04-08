@@ -1,0 +1,42 @@
+// Firestore Security Rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // User profile and data access rules
+    match /users/{userId} {
+      // Allow read/write access only to the authenticated user's own document
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // Records sub-collection
+      match /records/{recordId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      // Monthly expenses sub-collection
+      match /monthlyExpenses/{monthId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+    
+    // Disallow access to any other documents
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+// Storage Security Rules
+service firebase.storage {
+  match /b/{bucket}/o {
+    // User storage access rules
+    match /users/{userId}/{allPaths=**} {
+      // Allow read/write access only to the authenticated user's own storage
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Disallow access to any other storage paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+} 
