@@ -8,35 +8,47 @@ import {
   ActivityIndicator, 
   Image,
   TextInput,
-  Alert 
+  Alert,
+  RefreshControl,
+  Platform,
+  ScrollView
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getAllAnimalRecords, deleteAnimalRecord } from '../../firebase/firestore';
+import { getAllAnimalRecords, deleteAnimalRecord, AnimalRecord } from '../../firebase/firestore';
 import { Colors } from '../../constants/Colors';
-import { AnimalRecord } from '../../firebase/firestore';
 
 export default function RecordsScreen() {
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [records, setRecords] = useState<AnimalRecord[]>([]);
   const [filteredRecords, setFilteredRecords] = useState<AnimalRecord[]>([]);
   const [searchText, setSearchText] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({
-    collectionName: '',
-    showSold: true,
-    showUnsold: true,
-    dateRange: {
-      start: null as Date | null,
-      end: null as Date | null,
-    }
+    category: '',
+    status: '',
+    sortBy: 'date',
+    sortOrder: 'desc'
   });
   
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const filterCategory = params.filterCategory as string;
 
   useEffect(() => {
     loadRecords();
   }, []);
+
+  useEffect(() => {
+    if (filterCategory && records.length > 0) {
+      setFilters(prev => ({
+        ...prev,
+        category: filterCategory
+      }));
+      applyFilters();
+    }
+  }, [filterCategory, records]);
 
   useEffect(() => {
     applyFilters();
@@ -48,70 +60,74 @@ export default function RecordsScreen() {
       const allRecords = await getAllAnimalRecords();
       setRecords(allRecords);
     } catch (error) {
-      console.error('Error loading records:', error);
-      Alert.alert('Error', 'Failed to load records');
+      console.error('Error getting records:', error);
+      Alert.alert('Error', 'Failed to load animal records');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadRecords();
   };
 
   const applyFilters = () => {
     let filtered = [...records];
     
-    // Apply search text filter
+    // Apply category filter
+    if (filters.category) {
+      filtered = filtered.filter(record => 
+        record.category.toLowerCase() === filters.category.toLowerCase()
+      );
+    }
+    
+    // Apply status filter
+    if (filters.status) {
+      filtered = filtered.filter(record => 
+        record.status.toLowerCase() === filters.status.toLowerCase()
+      );
+    }
+    
+    // Apply search text
     if (searchText) {
       filtered = filtered.filter(record => 
-        record.collectionName.toLowerCase().includes(searchText.toLowerCase()) ||
-        (record.calfNames && record.calfNames.some(name => 
-          name.toLowerCase().includes(searchText.toLowerCase())
-        ))
+        record.name.toLowerCase().includes(searchText.toLowerCase()) ||
+        record.category.toLowerCase().includes(searchText.toLowerCase()) ||
+        record.id.toLowerCase().includes(searchText.toLowerCase())
       );
     }
     
-    // Apply collection name filter
-    if (filters.collectionName) {
-      filtered = filtered.filter(record => 
-        record.collectionName.toLowerCase() === filters.collectionName.toLowerCase()
-      );
-    }
-    
-    // Apply sold/unsold filter
-    if (!filters.showSold) {
-      filtered = filtered.filter(record => !record.saleDate);
-    }
-    
-    if (!filters.showUnsold) {
-      filtered = filtered.filter(record => record.saleDate);
-    }
-    
-    // Apply date range filter
-    if (filters.dateRange.start) {
-      const startDate = filters.dateRange.start;
-      filtered = filtered.filter(record => {
-        const purchaseDate = new Date(record.purchaseDate);
-        return purchaseDate >= startDate;
-      });
-    }
-    
-    if (filters.dateRange.end) {
-      const endDate = filters.dateRange.end;
-      filtered = filtered.filter(record => {
-        const purchaseDate = new Date(record.purchaseDate);
-        return purchaseDate <= endDate;
-      });
-    }
+    // Apply sorting
+    filtered.sort((a, b) => {
+      if (filters.sortBy === 'date') {
+        const dateA = new Date(a.purchaseDate).getTime();
+        const dateB = new Date(b.purchaseDate).getTime();
+        return filters.sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+      } else if (filters.sortBy === 'price') {
+        return filters.sortOrder === 'asc' 
+          ? a.purchasePrice - b.purchasePrice 
+          : b.purchasePrice - a.purchasePrice;
+      }
+      return 0;
+    });
     
     setFilteredRecords(filtered);
+  };
+
+  const handleAddRecord = () => {
+    router.push('/records/new');
   };
 
   const handleEditRecord = (recordId: string) => {
     router.push(`/records/${recordId}`);
   };
 
-  const handleDeleteRecord = (recordId: string) => {
+  const handleDeleteRecord = (record: AnimalRecord) => {
     Alert.alert(
-      'Confirm Delete',
-      'Are you sure you want to delete this record? This action cannot be undone.',
+      'Delete Record',
+      `Are you sure you want to delete ${record.animalNumber || 'this record'}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         { 
@@ -119,12 +135,14 @@ export default function RecordsScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteAnimalRecord(recordId);
-              setRecords(records.filter(record => record.id !== recordId));
+              setLoading(true);
+              await deleteAnimalRecord(record.id);
+              loadRecords();
               Alert.alert('Success', 'Record deleted successfully');
             } catch (error) {
               console.error('Error deleting record:', error);
               Alert.alert('Error', 'Failed to delete record');
+              setLoading(false);
             }
           }
         }
@@ -132,115 +150,99 @@ export default function RecordsScreen() {
     );
   };
 
-  const formatDate = (dateString: string | undefined | null) => {
-    if (!dateString) return 'N/A';
+  const toggleFilter = (filterType: string, value: string) => {
+    setFilters(prev => ({
+      ...prev,
+      [filterType]: prev[filterType as keyof typeof prev] === value ? '' : value
+    }));
+  };
+
+  const toggleFilterMenu = () => {
+    setShowFilters(!showFilters);
+  };
+
+  const resetFilters = () => {
+    setFilters({
+      category: '',
+      status: '',
+      sortBy: 'date',
+      sortOrder: 'desc'
+    });
+    setSearchText('');
+  };
+
+  const getUniqueCollections = () => {
+    const collections = new Set(records.map(record => record.collectionName));
+    return Array.from(collections);
+  };
+
+  const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString();
   };
 
-  const formatCurrency = (amount: number | undefined) => {
-    if (amount === undefined) return '₹0.00';
+  const formatCurrency = (amount: number) => {
     return `₹${amount.toFixed(2)}`;
   };
 
-  const getCollectionNames = () => {
-    const names = new Set<string>();
-    records.forEach(record => {
-      if (record.collectionName) {
-        names.add(record.collectionName);
-      }
-    });
-    return Array.from(names);
-  };
-
-  const toggleCollectionFilter = (name: string) => {
-    setFilters(prev => ({
-      ...prev,
-      collectionName: prev.collectionName === name ? '' : name
-    }));
-  };
-
   const renderRecord = ({ item }: { item: AnimalRecord }) => {
-    const isProfitable = (item.profit || 0) > 0;
+    const isSold = !!item.soldDate;
+    const statusColor = isSold ? '#4CAF50' : '#FF9800';
     
     return (
       <View style={styles.recordCard}>
         <View style={styles.recordHeader}>
-          <View style={styles.collectionTag}>
-            <Text style={styles.collectionText}>{item.collectionName}</Text>
+          <Text style={styles.recordNumber}>ID: {item.animalNumber || 'N/A'}</Text>
+          <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+            <Text style={styles.statusText}>{isSold ? 'Sold' : 'Active'}</Text>
           </View>
-          
-          {item.saleDate ? (
-            <View style={[styles.statusTag, styles.soldTag]}>
-              <Text style={styles.statusText}>Sold</Text>
-            </View>
-          ) : (
-            <View style={[styles.statusTag, styles.activeTag]}>
-              <Text style={styles.statusText}>Active</Text>
-            </View>
-          )}
         </View>
         
-        <View style={styles.recordContent}>
+        <View style={styles.recordBody}>
           <View style={styles.recordImageContainer}>
-            {item.imageURL ? (
+            {item.imageUrl ? (
               <Image 
-                source={{ uri: item.imageURL }} 
+                source={{ uri: item.imageUrl }} 
                 style={styles.recordImage} 
                 resizeMode="cover"
               />
             ) : (
-              <View style={styles.noImageContainer}>
-                <Ionicons name="image-outline" size={40} color="#DDD" />
+              <View style={styles.noImagePlaceholder}>
+                <Ionicons name="image-outline" size={40} color="#CCCCCC" />
               </View>
             )}
           </View>
           
           <View style={styles.recordDetails}>
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Purchase Date:</Text>
-              <Text style={styles.detailValue}>{formatDate(item.purchaseDate)}</Text>
+              <Text style={styles.detailLabel}>Collection:</Text>
+              <Text style={styles.detailValue}>{item.collectionName}</Text>
             </View>
             
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Purchase Price:</Text>
-              <Text style={styles.detailValue}>{formatCurrency(item.purchasePrice)}</Text>
+              <Text style={styles.detailLabel}>Purchase:</Text>
+              <Text style={styles.detailValue}>
+                {formatDate(item.purchaseDate)} - {formatCurrency(item.purchasePrice)}
+              </Text>
             </View>
             
-            {item.saleDate && (
-              <>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Sale Date:</Text>
-                  <Text style={styles.detailValue}>{formatDate(item.saleDate)}</Text>
-                </View>
-                
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Sale Price:</Text>
-                  <Text style={styles.detailValue}>{formatCurrency(item.salePrice)}</Text>
-                </View>
-                
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>
-                    {isProfitable ? 'Profit:' : 'Loss:'}
-                  </Text>
-                  <Text 
-                    style={[
-                      styles.detailValue, 
-                      isProfitable ? styles.profitText : styles.lossText
-                    ]}
-                  >
-                    {isProfitable 
-                      ? formatCurrency(item.profit) 
-                      : formatCurrency(item.loss)
-                    }
-                  </Text>
-                </View>
-              </>
+            {isSold && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Sold:</Text>
+                <Text style={styles.detailValue}>
+                  {formatDate(item.soldDate!)} - {formatCurrency(item.sellingPrice)}
+                </Text>
+              </View>
             )}
             
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Quantity:</Text>
-              <Text style={styles.detailValue}>{item.bulkQuantity}</Text>
+            <View style={styles.profitLossRow}>
+              {item.profit > 0 ? (
+                <Text style={styles.profitText}>Profit: {formatCurrency(item.profit)}</Text>
+              ) : item.loss > 0 ? (
+                <Text style={styles.lossText}>Loss: {formatCurrency(item.loss)}</Text>
+              ) : (
+                <Text>No profit/loss recorded</Text>
+              )}
             </View>
           </View>
         </View>
@@ -248,17 +250,17 @@ export default function RecordsScreen() {
         <View style={styles.recordActions}>
           <TouchableOpacity 
             style={styles.actionButton}
-            onPress={() => handleEditRecord(item.id || '')}
+            onPress={() => handleEditRecord(item.id)}
           >
-            <Ionicons name="create-outline" size={22} color={Colors.light.tint} />
+            <Ionicons name="create-outline" size={20} color={Colors.light.tint} />
             <Text style={styles.actionText}>Edit</Text>
           </TouchableOpacity>
           
           <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => handleDeleteRecord(item.id || '')}
+            style={[styles.actionButton, styles.deleteButton]}
+            onPress={() => handleDeleteRecord(item)}
           >
-            <Ionicons name="trash-outline" size={22} color="#F44336" />
+            <Ionicons name="trash-outline" size={20} color="#F44336" />
             <Text style={[styles.actionText, { color: '#F44336' }]}>Delete</Text>
           </TouchableOpacity>
         </View>
@@ -268,131 +270,213 @@ export default function RecordsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Animal Records</Text>
-        
-        <View style={styles.searchContainer}>
+      <View style={styles.searchContainer}>
+        <View style={styles.searchInputContainer}>
           <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search collections or calves..."
+            placeholder="Search records..."
             value={searchText}
             onChangeText={setSearchText}
           />
-          <TouchableOpacity onPress={() => setShowFilters(!showFilters)}>
-            <Ionicons 
-              name="options-outline" 
-              size={24} 
-              color={showFilters ? Colors.light.tint : '#999'} 
-            />
-          </TouchableOpacity>
+          {searchText ? (
+            <TouchableOpacity onPress={() => setSearchText('')}>
+              <Ionicons name="close-circle" size={20} color="#999" />
+            </TouchableOpacity>
+          ) : null}
         </View>
         
-        {showFilters && (
-          <View style={styles.filtersContainer}>
-            <Text style={styles.filterTitle}>Filter By Collection:</Text>
-            <View style={styles.collectionFilters}>
-              {getCollectionNames().map(name => (
-                <TouchableOpacity 
-                  key={name}
+        <TouchableOpacity 
+          style={styles.filterButton}
+          onPress={toggleFilterMenu}
+        >
+          <Ionicons name="options-outline" size={24} color={Colors.light.tint} />
+        </TouchableOpacity>
+      </View>
+      
+      {showFilters && (
+        <View style={styles.filtersContainer}>
+          <View style={styles.filterSection}>
+            <Text style={styles.filterSectionTitle}>Collection</Text>
+            <View style={styles.filterOptions}>
+              {getUniqueCollections().map((collection, index) => (
+                <TouchableOpacity
+                  key={index}
                   style={[
-                    styles.collectionFilterButton,
-                    filters.collectionName === name && styles.activeCollectionFilter
+                    styles.filterChip,
+                    filters.collectionName === collection ? styles.activeFilterChip : null
                   ]}
-                  onPress={() => toggleCollectionFilter(name)}
+                  onPress={() => toggleFilter('collectionName', collection)}
                 >
                   <Text 
                     style={[
-                      styles.collectionFilterText,
-                      filters.collectionName === name && styles.activeCollectionFilterText
+                      styles.filterChipText,
+                      filters.collectionName === collection ? styles.activeFilterChipText : null
                     ]}
                   >
-                    {name}
+                    {collection}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
-            
-            <Text style={styles.filterTitle}>Status:</Text>
-            <View style={styles.statusFilters}>
-              <TouchableOpacity 
+          </View>
+          
+          <View style={styles.filterSection}>
+            <Text style={styles.filterSectionTitle}>Status</Text>
+            <View style={styles.filterOptions}>
+              <TouchableOpacity
                 style={[
-                  styles.statusFilterButton,
-                  filters.showUnsold && styles.activeStatusFilter
+                  styles.filterChip,
+                  filters.status === 'all' ? styles.activeFilterChip : null
                 ]}
-                onPress={() => setFilters(prev => ({ ...prev, showUnsold: !prev.showUnsold }))}
+                onPress={() => setFilters(prev => ({ ...prev, status: 'all' }))}
               >
-                <Ionicons 
-                  name={filters.showUnsold ? "checkbox" : "square-outline"} 
-                  size={18} 
-                  color={filters.showUnsold ? Colors.light.tint : '#999'} 
-                />
-                <Text style={styles.statusFilterText}>Active</Text>
+                <Text 
+                  style={[
+                    styles.filterChipText,
+                    filters.status === 'all' ? styles.activeFilterChipText : null
+                  ]}
+                >
+                  All
+                </Text>
               </TouchableOpacity>
               
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[
-                  styles.statusFilterButton,
-                  filters.showSold && styles.activeStatusFilter
+                  styles.filterChip,
+                  filters.status === 'active' ? styles.activeFilterChip : null
                 ]}
-                onPress={() => setFilters(prev => ({ ...prev, showSold: !prev.showSold }))}
+                onPress={() => setFilters(prev => ({ ...prev, status: 'active' }))}
               >
-                <Ionicons 
-                  name={filters.showSold ? "checkbox" : "square-outline"} 
-                  size={18} 
-                  color={filters.showSold ? Colors.light.tint : '#999'} 
-                />
-                <Text style={styles.statusFilterText}>Sold</Text>
+                <Text 
+                  style={[
+                    styles.filterChipText,
+                    filters.status === 'active' ? styles.activeFilterChipText : null
+                  ]}
+                >
+                  Active
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  filters.status === 'sold' ? styles.activeFilterChip : null
+                ]}
+                onPress={() => setFilters(prev => ({ ...prev, status: 'sold' }))}
+              >
+                <Text 
+                  style={[
+                    styles.filterChipText,
+                    filters.status === 'sold' ? styles.activeFilterChipText : null
+                  ]}
+                >
+                  Sold
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
-        )}
-      </View>
+          
+          <View style={styles.filterSection}>
+            <Text style={styles.filterSectionTitle}>Sort By</Text>
+            <View style={styles.filterOptions}>
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  filters.sortBy === 'date' ? styles.activeFilterChip : null
+                ]}
+                onPress={() => setFilters(prev => ({ ...prev, sortBy: 'date' }))}
+              >
+                <Text 
+                  style={[
+                    styles.filterChipText,
+                    filters.sortBy === 'date' ? styles.activeFilterChipText : null
+                  ]}
+                >
+                  Date
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  filters.sortBy === 'price' ? styles.activeFilterChip : null
+                ]}
+                onPress={() => setFilters(prev => ({ ...prev, sortBy: 'price' }))}
+              >
+                <Text 
+                  style={[
+                    styles.filterChipText,
+                    filters.sortBy === 'price' ? styles.activeFilterChipText : null
+                  ]}
+                >
+                  Price
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  { marginLeft: 'auto' }
+                ]}
+                onPress={() => setFilters(prev => ({ 
+                  ...prev, 
+                  sortOrder: prev.sortOrder === 'asc' ? 'desc' : 'asc' 
+                }))}
+              >
+                <Ionicons 
+                  name={filters.sortOrder === 'asc' ? 'arrow-up' : 'arrow-down'} 
+                  size={16} 
+                  color={Colors.light.tint} 
+                />
+                <Text style={styles.filterChipText}>
+                  {filters.sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <TouchableOpacity
+            style={styles.resetButton}
+            onPress={resetFilters}
+          >
+            <Text style={styles.resetButtonText}>Reset Filters</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       
-      {loading ? (
+      {loading && !refreshing ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={Colors.light.tint} />
           <Text style={styles.loadingText}>Loading records...</Text>
         </View>
-      ) : (
-        <>
-          {filteredRecords.length > 0 ? (
-            <FlatList
-              data={filteredRecords}
-              renderItem={renderRecord}
-              keyExtractor={item => item.id || Math.random().toString()}
-              contentContainerStyle={styles.recordsList}
-              showsVerticalScrollIndicator={false}
-            />
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="document-outline" size={60} color="#CCC" />
-              <Text style={styles.emptyText}>No records found</Text>
-              <Text style={styles.emptySubtext}>
-                {records.length > 0 
-                  ? 'Try adjusting your filters or search terms'
-                  : 'Start by adding your first animal record'
-                }
-              </Text>
-              <TouchableOpacity 
-                style={styles.addButton}
-                onPress={() => router.push('/records/new')}
-              >
-                <Ionicons name="add" size={24} color="#FFFFFF" />
-                <Text style={styles.addButtonText}>Add New Record</Text>
-              </TouchableOpacity>
-            </View>
+      ) : filteredRecords.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="sad-outline" size={60} color="#CCCCCC" />
+          <Text style={styles.emptyText}>No records found</Text>
+          {(searchText || filters.collectionName || filters.status !== 'all') && (
+            <TouchableOpacity
+              style={styles.resetButton}
+              onPress={resetFilters}
+            >
+              <Text style={styles.resetButtonText}>Clear Filters</Text>
+            </TouchableOpacity>
           )}
-        </>
-      )}
-      
-      {!loading && filteredRecords.length > 0 && (
-        <TouchableOpacity 
-          style={styles.floatingButton}
-          onPress={() => router.push('/records/new')}
-        >
-          <Ionicons name="add" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={filteredRecords}
+          renderItem={renderRecord}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.recordsList}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[Colors.light.tint]}
+            />
+          }
+        />
       )}
     </View>
   );
@@ -403,89 +487,86 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F5F5',
   },
-  header: {
-    backgroundColor: '#FFFFFF',
-    padding: 20,
-    paddingTop: 60,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEE',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#444',
-    marginBottom: 15,
-  },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
+  },
+  searchInputContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#F5F5F5',
-    borderRadius: 10,
+    borderRadius: 8,
     paddingHorizontal: 10,
-    marginBottom: 10,
   },
   searchIcon: {
-    marginRight: 10,
+    marginRight: 8,
   },
   searchInput: {
     flex: 1,
-    height: 45,
+    height: 40,
     fontSize: 16,
+    color: '#333',
+  },
+  filterButton: {
+    marginLeft: 10,
+    padding: 8,
   },
   filtersContainer: {
-    marginTop: 10,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
     padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
   },
-  filterTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#666',
-    marginBottom: 8,
-  },
-  collectionFilters: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  filterSection: {
     marginBottom: 15,
   },
-  collectionFilterButton: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginRight: 8,
+  filterSectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
     marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#DDD',
+    color: '#333',
   },
-  activeCollectionFilter: {
-    backgroundColor: Colors.light.tint,
-    borderColor: Colors.light.tint,
-  },
-  collectionFilterText: {
-    color: '#666',
-    fontSize: 14,
-  },
-  activeCollectionFilterText: {
-    color: '#FFFFFF',
-  },
-  statusFilters: {
+  filterOptions: {
     flexDirection: 'row',
-    marginBottom: 10,
+    flexWrap: 'wrap',
   },
-  statusFilterButton: {
+  filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 20,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 8,
+    marginBottom: 8,
   },
-  activeStatusFilter: {
-    
+  activeFilterChip: {
+    backgroundColor: Colors.light.tint,
   },
-  statusFilterText: {
+  filterChipText: {
     fontSize: 14,
     color: '#666',
-    marginLeft: 6,
+  },
+  activeFilterChipText: {
+    color: '#FFFFFF',
+  },
+  resetButton: {
+    alignSelf: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#EEEEEE',
+    borderRadius: 5,
+    marginTop: 5,
+  },
+  resetButtonText: {
+    color: '#666',
+    fontWeight: '500',
   },
   loadingContainer: {
     flex: 1,
@@ -495,6 +576,18 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 10,
     color: '#666',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#999',
+    marginBottom: 10,
   },
   recordsList: {
     padding: 15,
@@ -513,56 +606,46 @@ const styles = StyleSheet.create({
   recordHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 15,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: '#EEEEEE',
   },
-  collectionTag: {
-    backgroundColor: '#E3F2FD',
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 5,
+  recordNumber: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
   },
-  collectionText: {
-    fontSize: 12,
-    color: '#1976D2',
-    fontWeight: '500',
-  },
-  statusTag: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 5,
-  },
-  soldTag: {
-    backgroundColor: '#FFEBEE',
-  },
-  activeTag: {
-    backgroundColor: '#E8F5E9',
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
   },
   statusText: {
+    color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '500',
-    color: '#D32F2F',
+    fontWeight: 'bold',
   },
-  recordContent: {
+  recordBody: {
     flexDirection: 'row',
     padding: 15,
   },
   recordImageContainer: {
-    width: 90,
-    height: 90,
+    width: 80,
+    height: 80,
     marginRight: 15,
   },
   recordImage: {
     width: '100%',
     height: '100%',
     borderRadius: 5,
+    backgroundColor: '#F0F0F0',
   },
-  noImageContainer: {
+  noImagePlaceholder: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F0F0F0',
     borderRadius: 5,
     justifyContent: 'center',
     alignItems: 'center',
@@ -572,17 +655,21 @@ const styles = StyleSheet.create({
   },
   detailRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 5,
+    marginBottom: 6,
   },
   detailLabel: {
+    width: 80,
     fontSize: 14,
     color: '#666',
   },
   detailValue: {
+    flex: 1,
     fontSize: 14,
+    color: '#333',
     fontWeight: '500',
-    color: '#444',
+  },
+  profitLossRow: {
+    marginTop: 8,
   },
   profitText: {
     color: '#4CAF50',
@@ -595,66 +682,23 @@ const styles = StyleSheet.create({
   recordActions: {
     flexDirection: 'row',
     borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
+    borderTopColor: '#EEEEEE',
   },
   actionButton: {
     flex: 1,
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 12,
+  },
+  deleteButton: {
+    borderLeftWidth: 1,
+    borderLeftColor: '#EEEEEE',
   },
   actionText: {
-    marginLeft: 5,
     fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 5,
     color: Colors.light.tint,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#666',
-    marginTop: 10,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
-    marginTop: 5,
-    marginBottom: 20,
-  },
-  addButton: {
-    flexDirection: 'row',
-    backgroundColor: Colors.light.tint,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 30,
-    alignItems: 'center',
-  },
-  addButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    marginLeft: 5,
-  },
-  floatingButton: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: Colors.light.tint,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
   },
 }); 

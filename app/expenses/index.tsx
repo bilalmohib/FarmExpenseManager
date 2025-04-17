@@ -11,7 +11,8 @@ import {
   Modal,
   ScrollView,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  RefreshControl
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -187,7 +188,7 @@ export default function ExpensesScreen() {
   };
   
   const formatCurrency = (value: number) => {
-    return `$${value.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,')}`;
+    return `₹${value.toFixed(2)}`;
   };
   
   const calculateTotal = () => {
@@ -233,10 +234,6 @@ export default function ExpensesScreen() {
   
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Monthly Expenses</Text>
-      </View>
-      
       <View style={styles.monthSelector}>
         <TouchableOpacity
           style={styles.monthButton}
@@ -255,55 +252,56 @@ export default function ExpensesScreen() {
         </TouchableOpacity>
       </View>
       
-      {loading ? (
+      {loading && !refreshing ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={Colors.light.tint} />
+          <Text style={styles.loadingText}>Loading expenses...</Text>
         </View>
       ) : (
         <>
-          <View style={styles.totalCard}>
-            <Text style={styles.totalLabel}>Total Expenses</Text>
+          <View style={styles.totalContainer}>
+            <Text style={styles.totalLabel}>Total Expenses:</Text>
             <Text style={styles.totalAmount}>{formatCurrency(calculateTotal())}</Text>
           </View>
           
           {expenses.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Ionicons name="receipt-outline" size={60} color="#ccc" />
-              <Text style={styles.emptyText}>No expenses recorded for this month</Text>
-              <TouchableOpacity
-                style={styles.addFirstButton}
-                onPress={handleAddExpense}
-              >
-                <Text style={styles.addFirstButtonText}>Add First Expense</Text>
-              </TouchableOpacity>
+              <Ionicons name="wallet-outline" size={60} color="#ccc" />
+              <Text style={styles.emptyText}>No expenses found</Text>
+              <Text style={styles.emptySubtext}>
+                Add monthly expenses to track your farm costs
+              </Text>
             </View>
           ) : (
             <FlatList
               data={expenses}
-              keyExtractor={(item) => item.id || String(Math.random())}
               renderItem={renderExpenseItem}
-              contentContainerStyle={styles.listContainer}
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.expensesList}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  colors={[Colors.light.tint]}
+                />
+              }
             />
           )}
           
-          {expenses.length > 0 && (
-            <TouchableOpacity
-              style={styles.floatingButton}
-              onPress={handleAddExpense}
-            >
-              <Ionicons name="add" size={24} color="#fff" />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={handleAddExpense}
+          >
+            <Ionicons name="add" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
         </>
       )}
       
       {/* Add/Edit Expense Modal */}
       <Modal
-        visible={modalVisible}
         animationType="slide"
         transparent={true}
+        visible={modalVisible}
         onRequestClose={() => setModalVisible(false)}
       >
         <KeyboardAvoidingView
@@ -316,51 +314,56 @@ export default function ExpensesScreen() {
                 {currentExpense ? 'Edit Expense' : 'Add Expense'}
               </Text>
               <TouchableOpacity
-                onPress={() => setModalVisible(false)}
                 style={styles.closeButton}
+                onPress={() => setModalVisible(false)}
               >
                 <Ionicons name="close" size={24} color="#555" />
               </TouchableOpacity>
             </View>
             
             <ScrollView style={styles.modalForm}>
-              <Text style={styles.inputLabel}>Expense Type*</Text>
+              <Text style={styles.inputLabel}>Expense Type *</Text>
               <TextInput
                 style={styles.input}
                 value={expenseType}
                 onChangeText={setExpenseType}
-                placeholder="Feed, Medicine, Labor, etc."
-                placeholderTextColor="#999"
+                placeholder="e.g., Feed, Medicine, Labor"
               />
               
-              <Text style={styles.inputLabel}>Description (Optional)</Text>
+              <Text style={styles.inputLabel}>Description</Text>
               <TextInput
                 style={[styles.input, styles.textArea]}
                 value={description}
                 onChangeText={setDescription}
-                placeholder="Additional details..."
-                placeholderTextColor="#999"
+                placeholder="Additional details (optional)"
                 multiline
                 numberOfLines={3}
-                textAlignVertical="top"
               />
               
-              <Text style={styles.inputLabel}>Amount ($)*</Text>
+              <Text style={styles.inputLabel}>Amount (₹) *</Text>
               <TextInput
                 style={styles.input}
                 value={amount}
                 onChangeText={setAmount}
                 placeholder="0.00"
-                placeholderTextColor="#999"
-                keyboardType="decimal-pad"
+                keyboardType="numeric"
               />
               
-              <TouchableOpacity
-                style={styles.saveButton}
-                onPress={handleSaveExpense}
-              >
-                <Text style={styles.saveButtonText}>Save Expense</Text>
-              </TouchableOpacity>
+              <View style={styles.formActions}>
+                <TouchableOpacity
+                  style={[styles.formButton, styles.cancelButton]}
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[styles.formButton, styles.saveButton]}
+                  onPress={handleSaveExpense}
+                >
+                  <Text style={styles.saveButtonText}>Save</Text>
+                </TouchableOpacity>
+              </View>
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
@@ -374,99 +377,75 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
-  header: {
-    backgroundColor: Colors.light.tint,
-    paddingTop: 60,
-    paddingBottom: 15,
-    paddingHorizontal: 20,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
   monthSelector: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
     paddingVertical: 15,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    margin: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
   },
   monthButton: {
-    padding: 8,
+    padding: 10,
   },
   monthYearText: {
     fontSize: 18,
     fontWeight: '600',
-    marginHorizontal: 20,
     color: '#333',
+    marginHorizontal: 20,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  totalCard: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 15,
-    marginHorizontal: 15,
-    marginBottom: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  totalLabel: {
-    fontSize: 14,
+  loadingText: {
+    marginTop: 10,
     color: '#666',
   },
-  totalAmount: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 5,
-  },
-  listContainer: {
+  totalContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
     padding: 15,
-    paddingTop: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  totalLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+  },
+  totalAmount: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#E53935',
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
+    padding: 20,
   },
   emptyText: {
-    marginTop: 20,
-    fontSize: 16,
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#666',
+    marginTop: 10,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
     textAlign: 'center',
+    marginTop: 5,
   },
-  addFirstButton: {
-    marginTop: 20,
-    backgroundColor: Colors.light.tint,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-  },
-  addFirstButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 16,
+  expensesList: {
+    padding: 15,
   },
   expenseCard: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     padding: 15,
     marginBottom: 15,
@@ -479,7 +458,8 @@ const styles = StyleSheet.create({
   expenseMain: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    marginBottom: 10,
   },
   expenseInfo: {
     flex: 1,
@@ -488,51 +468,48 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
+    marginBottom: 4,
   },
   expenseDescription: {
     fontSize: 14,
     color: '#666',
-    marginTop: 4,
+    marginBottom: 4,
   },
   expenseDate: {
     fontSize: 12,
     color: '#999',
-    marginTop: 4,
   },
   expenseAmount: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: 'bold',
+    color: '#E53935',
   },
   expenseActions: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 10,
-    paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
+    paddingTop: 10,
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 8,
-    marginLeft: 10,
+    marginRight: 15,
   },
   actionText: {
+    marginLeft: 5,
     fontSize: 14,
     color: Colors.light.tint,
-    marginLeft: 5,
   },
   deleteButton: {
-    marginLeft: 15,
+    marginLeft: 10,
   },
   deleteText: {
     color: '#ff3b30',
   },
-  floatingButton: {
+  addButton: {
     position: 'absolute',
-    right: 20,
     bottom: 20,
+    right: 20,
     width: 56,
     height: 56,
     borderRadius: 28,
@@ -540,9 +517,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
     elevation: 5,
   },
   modalContainer: {
@@ -551,21 +528,22 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+    paddingBottom: 20,
+    maxHeight: '80%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#E0E0E0',
+    padding: 15,
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
   },
@@ -573,38 +551,51 @@ const styles = StyleSheet.create({
     padding: 5,
   },
   modalForm: {
-    padding: 20,
+    padding: 15,
   },
   inputLabel: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#555',
-    marginBottom: 8,
+    fontWeight: '500',
+    color: '#666',
+    marginBottom: 5,
   },
   input: {
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#F5F5F5',
     borderRadius: 8,
     padding: 12,
+    marginBottom: 15,
     fontSize: 16,
-    color: '#333',
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
   },
   textArea: {
-    minHeight: 80,
+    height: 80,
     textAlignVertical: 'top',
+  },
+  formActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  formButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#F5F5F5',
+    marginRight: 10,
   },
   saveButton: {
     backgroundColor: Colors.light.tint,
-    borderRadius: 8,
-    padding: 15,
-    alignItems: 'center',
-    marginTop: 20,
+    marginLeft: 10,
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontWeight: '600',
   },
   saveButtonText: {
-    color: '#fff',
-    fontSize: 16,
+    color: '#FFFFFF',
     fontWeight: '600',
   },
 }); 

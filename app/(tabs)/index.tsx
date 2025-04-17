@@ -4,7 +4,8 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
 import { getAllAnimalRecords, getMonthlyExpense } from '../../firebase/firestore';
-import { auth } from '../../firebase/config';
+import { useUser } from '@clerk/clerk-expo';
+import SignOutButton from '../components/SignOutButton';
 
 export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
@@ -13,19 +14,15 @@ export default function HomeScreen() {
     monthlyProfitLoss: 0,
     monthlyExpenseEntered: false,
   });
-  const [userName, setUserName] = useState('');
+  const { user, isLoaded } = useUser();
   const router = useRouter();
 
   useEffect(() => {
-    // Get user info
-    const user = (auth as any).currentUser;
-    if (user) {
-      setUserName(user.displayName || 'Farmer');
+    if (isLoaded) {
+      // Load dashboard data
+      loadDashboardData();
     }
-
-    // Load dashboard data
-    loadDashboardData();
-  }, []);
+  }, [isLoaded]);
 
   const loadDashboardData = async () => {
     try {
@@ -78,7 +75,7 @@ export default function HomeScreen() {
     return 'Good Evening';
   };
 
-  if (loading) {
+  if (!isLoaded || loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.light.tint} />
@@ -87,13 +84,21 @@ export default function HomeScreen() {
     );
   }
 
+  // Extract user's first name or username
+  const userName = user?.firstName || user?.username || 'Farmer';
+
   return (
     <ScrollView style={styles.container}>
       {/* Welcome Section */}
       <View style={styles.welcomeSection}>
-        <Text style={styles.welcomeText}>{getTimeOfDay()},</Text>
-        <Text style={styles.nameText}>{userName}!</Text>
-        <Text style={styles.dateText}>{new Date().toDateString()}</Text>
+        <View style={styles.welcomeHeader}>
+          <View>
+            <Text style={styles.welcomeText}>{getTimeOfDay()},</Text>
+            <Text style={styles.nameText}>{userName}!</Text>
+            <Text style={styles.dateText}>{new Date().toDateString()}</Text>
+          </View>
+          <SignOutButton />
+        </View>
       </View>
 
       {/* Summary Cards */}
@@ -101,7 +106,7 @@ export default function HomeScreen() {
         {/* Active Animals Card */}
         <TouchableOpacity 
           style={styles.card}
-          onPress={() => router.push('../records/index')}
+          onPress={() => router.push('/records')}
         >
           <View style={styles.cardIconContainer}>
             <Ionicons name="paw" size={28} color={Colors.light.tint} />
@@ -113,7 +118,7 @@ export default function HomeScreen() {
         {/* Monthly Profit/Loss Card */}
         <TouchableOpacity 
           style={styles.card}
-          onPress={() => router.push('../reports/index')}
+          onPress={() => router.push('/reports')}
         >
           <View style={styles.cardIconContainer}>
             <Ionicons 
@@ -136,7 +141,7 @@ export default function HomeScreen() {
         {/* Monthly Expense Card */}
         <TouchableOpacity 
           style={styles.card}
-          onPress={() => router.push('../expenses/new')}
+          onPress={() => router.push('/expenses')}
         >
           <View style={styles.cardIconContainer}>
             <Ionicons 
@@ -165,7 +170,7 @@ export default function HomeScreen() {
           {/* Add Record Button */}
           <TouchableOpacity 
             style={styles.actionButton}
-            onPress={() => router.push('../records/new')}
+            onPress={() => router.push('/records')}
           >
             <View style={styles.actionIconContainer}>
               <Ionicons name="add-circle" size={32} color="#FFFFFF" />
@@ -176,7 +181,7 @@ export default function HomeScreen() {
           {/* View Records Button */}
           <TouchableOpacity 
             style={styles.actionButton}
-            onPress={() => router.push('../records/index')}
+            onPress={() => router.push('/records')}
           >
             <View style={[styles.actionIconContainer, { backgroundColor: '#FF9800' }]}>
               <Ionicons name="list" size={32} color="#FFFFFF" />
@@ -187,7 +192,7 @@ export default function HomeScreen() {
           {/* Expenses Button */}
           <TouchableOpacity 
             style={styles.actionButton}
-            onPress={() => router.push('../expenses/new')}
+            onPress={() => router.push('/expenses')}
           >
             <View style={[styles.actionIconContainer, { backgroundColor: '#2196F3' }]}>
               <Ionicons name="wallet" size={32} color="#FFFFFF" />
@@ -198,7 +203,7 @@ export default function HomeScreen() {
           {/* Reports Button */}
           <TouchableOpacity 
             style={styles.actionButton}
-            onPress={() => router.push('../reports/index')}
+            onPress={() => router.push('/reports')}
           >
             <View style={[styles.actionIconContainer, { backgroundColor: '#673AB7' }]}>
               <Ionicons name="bar-chart" size={32} color="#FFFFFF" />
@@ -217,9 +222,9 @@ export default function HomeScreen() {
           </Text>
           <TouchableOpacity 
             style={styles.warningButton}
-            onPress={() => router.push('../expenses/new')}
+            onPress={() => router.push('/expenses')}
           >
-            <Text style={styles.warningButtonText}>Add Expense</Text>
+            <Text style={styles.warningButtonText} >Add Expense</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -252,6 +257,11 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
+  },
+  welcomeHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   welcomeText: {
     fontSize: 18,

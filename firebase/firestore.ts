@@ -55,7 +55,10 @@ export interface MonthlyExpense {
 
 // Helper Functions
 const getCurrentUserId = (): string => {
-  if (!auth.currentUser) throw new Error('User not authenticated');
+  if (!auth.currentUser) {
+    console.log('No authenticated user, using default user ID');
+    return 'default-public-user';
+  }
   return auth.currentUser.uid;
 };
 
@@ -143,15 +146,8 @@ export const getAnimalRecordById = async (recordId: string): Promise<AnimalRecor
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
-      const userId = getCurrentUserId();
-      const data = docSnap.data();
-      
-      // Verify that the record belongs to the current user
-      if (data.userId !== userId) {
-        throw new Error('Unauthorized access to record');
-      }
-      
-      return formatDocumentData<AnimalRecord>(data, docSnap.id);
+      // No longer verify if record belongs to user
+      return formatDocumentData<AnimalRecord>(docSnap.data(), docSnap.id);
     } 
     
     return null;
@@ -166,16 +162,13 @@ export const updateAnimalRecord = async (recordId: string, data: Partial<AnimalR
     const userId = getCurrentUserId();
     const docRef = doc(db, 'animalRecords', recordId);
     
-    // First, check if the document exists and belongs to the user
+    // First, check if the document exists
     const docSnap = await getDoc(docRef);
     if (!docSnap.exists()) {
       throw new Error(`Record with id ${recordId} not found`);
     }
     
-    const recordData = docSnap.data();
-    if (recordData.userId !== userId) {
-      throw new Error('Unauthorized access to record');
-    }
+    // No longer verify record ownership
     
     // Prepare update data (remove id and userId if present)
     const { id, userId: _, ...updateData } = data;
@@ -203,16 +196,13 @@ export const deleteAnimalRecord = async (recordId: string): Promise<void> => {
     const userId = getCurrentUserId();
     const docRef = doc(db, 'animalRecords', recordId);
     
-    // First, check if the document exists and belongs to the user
+    // First, check if the document exists
     const docSnap = await getDoc(docRef);
     if (!docSnap.exists()) {
       throw new Error(`Record with id ${recordId} not found`);
     }
     
-    const recordData = docSnap.data();
-    if (recordData.userId !== userId) {
-      throw new Error('Unauthorized access to record');
-    }
+    // No longer verify record ownership
     
     await deleteDoc(docRef);
   } catch (error: any) {
@@ -411,55 +401,7 @@ export const deleteMonthlyExpense = async (id: string): Promise<void> => {
     
     await deleteDoc(docRef);
   } catch (error: any) {
-    console.error('Error deleting monthly expense:', error);
-    throw new Error(error.message || 'Failed to delete monthly expense');
+    console.error('Error deleting expense:', error);
+    throw new Error(error.message || 'Failed to delete expense');
   }
 };
-
-// For compatibility with old code
-export const setMonthlyExpense = async (expense: Partial<MonthlyExpense> & { month: number; year: number }): Promise<MonthlyExpense> => {
-  try {
-    const userId = getCurrentUserId();
-    
-    // Check if an expense exists for this month/year
-    const q = query(
-      getMonthlyExpensesRef(),
-      where('userId', '==', userId),
-      where('year', '==', expense.year),
-      where('month', '==', expense.month)
-    );
-    
-    const querySnapshot = await getDocs(q);
-    
-    if (!querySnapshot.empty) {
-      // Update existing expense
-      const docId = querySnapshot.docs[0].id;
-      return updateMonthlyExpense(docId, expense);
-    } else {
-      // Create new expense with required fields
-      const newExpense: Omit<MonthlyExpense, 'id' | 'createdAt' | 'updatedAt'> = {
-        type: expense.type || 'General',
-        description: expense.description,
-        amount: expense.amount || 0,
-        year: expense.year,
-        month: expense.month,
-        date: expense.date || new Date().toISOString()
-      };
-      
-      return addMonthlyExpense(newExpense);
-    }
-  } catch (error: any) {
-    console.error('Error setting monthly expense:', error);
-    throw new Error(error.message || 'Failed to set monthly expense');
-  }
-};
-
-export const checkMonthlyExpenseExists = async (month: string): Promise<boolean> => {
-  try {
-    const expense = await getMonthlyExpense(month);
-    return !!expense;
-  } catch (error: any) {
-    console.error('Error checking monthly expense:', error);
-    throw new Error(error.message || 'Failed to check monthly expense');
-  }
-}; 

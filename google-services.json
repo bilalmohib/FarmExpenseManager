@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "310571190795",
+    "project_id": "livestockmanagement-6c488",
+    "storage_bucket": "livestockmanagement-6c488.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:310571190795:android:b2ae3475b1ec42f600550e",
+        "android_client_info": {
+          "package_name": "com.bilalmohib7896.farm_expense_manager_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "310571190795-9a5bp13sn7ui7qsshndfkjlm9d272785.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bilalmohib7896.farm_expense_manager_app",
+            "certificate_hash": "461fc71efd72371d2bcb165c46197263316ca63b"
+          }
+        },
+        {
+          "client_id": "310571190795-81ds2ktbvoh4nqnkdb09sph2v77po89d.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAktl8L_pDLYaO6Yqbo1-0cW1oENg9UFqo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "310571190795-81ds2ktbvoh4nqnkdb09sph2v77po89d.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

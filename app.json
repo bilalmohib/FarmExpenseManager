@@ -5,13 +5,15 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
+    "scheme": "com.farmexpense.manager",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.farmexpense.manager"
     },
     "android": {
+      "package": "com.farmexpense.manager",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -33,7 +35,7 @@
           "backgroundColor": "#ffffff"
         }
       ]
-    ],
+    ],    
     "experiments": {
       "typedRoutes": true
     }

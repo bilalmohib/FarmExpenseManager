@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,23 +7,27 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
-  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useAuth } from '../lib/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
-import { signInWithGoogle } from '../lib/firebase';
+import { useSignIn, useOAuth } from '@clerk/clerk-expo';
+import * as WebBrowser from 'expo-web-browser';
+import GoogleButton from '../components/GoogleButton';
+
+// Import needed for OAuth deep linking
+WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [secureTextEntry, setSecureTextEntry] = useState(true);
-  const { signIn } = useAuth();
   const router = useRouter();
+  const { signIn, setActive, isLoaded } = useSignIn();
+  const { startOAuthFlow } = useOAuth({ strategy: "oauth_google" });
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -49,22 +53,39 @@ export default function LoginScreen() {
 
     try {
       setLoading(true);
-      await signIn(email.trim(), password);
-      // Navigation will be handled by AuthContext
+      if (!signIn) {
+        throw new Error("signIn is undefined");
+      }
+
+      // Attempt to sign in with email/password
+      const signInAttempt = await signIn.create({
+        identifier: email.trim(),
+        password: password,
+      });
+
+      if (signInAttempt.status === 'complete') {
+        // If the sign-in is complete, set the session as active
+        if (setActive) {
+          await setActive({ session: signInAttempt.createdSessionId });
+          router.replace('/(tabs)');
+        } else {
+          console.error("setActive is undefined");
+        }
+      } else {
+        console.log('Sign in status:', signInAttempt.status);
+        console.log('Next step:', signInAttempt.firstFactorVerification);
+
+        // Handle multi-factor authentication or other steps here
+        Alert.alert('Login Status', 'Additional verification steps may be required.');
+      }
     } catch (error: any) {
       let errorMessage = 'An error occurred during login';
-      
-      // Handle specific Firebase error codes
-      if (error.code === 'auth/user-not-found') {
-        errorMessage = 'No account found with this email';
-      } else if (error.code === 'auth/wrong-password') {
-        errorMessage = 'Incorrect password';
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email address';
-      } else if (error.code === 'auth/too-many-requests') {
-        errorMessage = 'Too many failed attempts. Please try again later';
+
+      // Handle Clerk-specific error codes
+      if (error.errors && error.errors.length > 0) {
+        errorMessage = error.errors[0].message || errorMessage;
       }
-      
+
       Alert.alert('Login Failed', errorMessage);
       console.error('Login error:', error);
     } finally {
@@ -72,49 +93,31 @@ export default function LoginScreen() {
     }
   };
 
-  const handleRegister = () => {
-    router.replace('../(auth)/register');
-  };
-
-  const handleForgotPassword = () => {
-    router.replace('../(auth)/forgot-password');
-  };
-
-  // For demo purposes - login with test account
-  const handleTestLogin = async () => {
-    setEmail('admin@example.com');
-    setPassword('password');
-    
-    // Wait for state update then login
-    setTimeout(async () => {
-      try {
-        setLoading(true);
-        await signIn('admin@example.com', 'password');
-      } catch (error: any) {
-        Alert.alert('Login Failed', error.message || 'Please check your credentials and try again');
-      } finally {
-        setLoading(false);
-      }
-    }, 100);
-  };
-
-  const handleGoogleLogin = async () => {
+  const handleGoogleLogin = useCallback(async () => {
     try {
       setLoading(true);
-      await signInWithGoogle();
-      // Navigation will be handled by AuthContext
-    } catch (error: any) {
-      let errorMessage = 'Failed to sign in with Google';
-      if (error.code === 'auth/popup-closed-by-user') {
-        errorMessage = 'Google sign in was cancelled';
-      } else if (error.code === 'auth/popup-blocked') {
-        errorMessage = 'Google sign in popup was blocked. Please allow popups for this site.';
+      const { createdSessionId, setActive } = await startOAuthFlow();
+      if (createdSessionId) {
+        if (setActive) {
+          await setActive({ session: createdSessionId });
+          router.replace('/(tabs)');
+        } else {
+          console.error("setActive is undefined");
+        }
       }
-      Alert.alert('Google Sign In Failed', errorMessage);
-      console.error('Google sign in error:', error);
+    } catch (err) {
+      console.error("OAuth error", err);
+      Alert.alert("Error signing in with Google", "Please try again");
     } finally {
       setLoading(false);
     }
+  }, [startOAuthFlow]);
+  const handleRegister = () => {
+    router.push('/register');
+  };
+  const handleForgotPassword = () => {
+    // router.push('/(auth)/forgot-password');
+    Alert.alert('Forgot Password', 'Please contact support to reset your password');
   };
 
   return (
@@ -156,19 +159,19 @@ export default function LoginScreen() {
               secureTextEntry={secureTextEntry}
               editable={!loading}
             />
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.eyeIcon}
               onPress={() => setSecureTextEntry(!secureTextEntry)}
             >
-              <Ionicons 
-                name={secureTextEntry ? "eye-outline" : "eye-off-outline"} 
-                size={22} 
-                color="#7f8c8d" 
+              <Ionicons
+                name={secureTextEntry ? "eye-outline" : "eye-off-outline"}
+                size={22}
+                color="#7f8c8d"
               />
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.forgotPassword}
             onPress={handleForgotPassword}
           >
@@ -181,7 +184,7 @@ export default function LoginScreen() {
               (!email.trim() || !password.trim()) && styles.loginButtonDisabled
             ]}
             onPress={handleLogin}
-            disabled={loading || !email.trim() || !password.trim()}
+            disabled={loading || !email.trim() || !password.trim() || !isLoaded}
           >
             {loading ? (
               <ActivityIndicator color="#fff" />
@@ -190,30 +193,17 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.testLoginButton}
-            onPress={handleTestLogin}
-            disabled={loading}
-          >
-            <Text style={styles.testLoginText}>Use Test Account</Text>
-          </TouchableOpacity>
-
           <View style={styles.orContainer}>
             <View style={styles.divider} />
             <Text style={styles.orText}>OR</Text>
             <View style={styles.divider} />
           </View>
 
-          <View style={styles.socialLoginContainer}>
-            <TouchableOpacity 
-              style={[styles.socialButton, styles.googleButton]}
-              onPress={handleGoogleLogin}
-              disabled={loading}
-            >
-              <Ionicons name="logo-google" size={22} color="#fff" />
-              <Text style={styles.socialButtonText}>Continue with Google</Text>
-            </TouchableOpacity>
-          </View>
+          <GoogleButton 
+            onPress={handleGoogleLogin}
+            loading={loading}
+            text="Continue with Google"
+          />
 
           <View style={styles.registerContainer}>
             <Text style={styles.registerText}>Don't have an account?</Text>
@@ -304,19 +294,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  testLoginButton: {
-    borderRadius: 8,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: '#27ae60',
-    borderStyle: 'dashed',
-  },
-  testLoginText: {
-    color: '#27ae60',
-    fontSize: 14,
+  loginButtonDisabled: {
+    backgroundColor: '#95a5a6',
   },
   orContainer: {
     flexDirection: 'row',
@@ -329,46 +308,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#e0e0e0',
   },
   orText: {
-    color: '#7f8c8d',
     marginHorizontal: 10,
+    color: '#7f8c8d',
     fontSize: 14,
-  },
-  socialLoginContainer: {
-    marginVertical: 15,
-  },
-  socialButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    height: 50,
-    marginBottom: 10,
-  },
-  googleButton: {
-    backgroundColor: '#db4437',
-  },
-  socialButtonText: {
-    color: '#fff',
-    marginLeft: 10,
-    fontSize: 16,
-    fontWeight: '500',
   },
   registerContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 20,
+    marginTop: 15,
   },
   registerText: {
     color: '#7f8c8d',
     fontSize: 14,
   },
   registerLink: {
-    color: '#27ae60',
-    fontSize: 14,
+    color: '#3498db',
     fontWeight: 'bold',
+    fontSize: 14,
     marginLeft: 5,
-  },
-  loginButtonDisabled: {
-    backgroundColor: '#95a5a6',
   },
 }); 

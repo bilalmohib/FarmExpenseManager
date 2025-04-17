@@ -55,11 +55,10 @@ const categories = [
 export default function ExploreScreen() {
   const router = useRouter();
 
-  const handleCategoryPress = (category: typeof categories[0]) => {
-    // Navigate to records filtered by category
+  const handleCategoryPress = (category: string) => {
     router.push({
-      pathname: '../records/index',
-      params: { category: category.name }
+      pathname: '/records',
+      params: { filterCategory: category }
     });
   };
 
@@ -78,7 +77,7 @@ export default function ExploreScreen() {
         renderItem={({ item }) => (
           <TouchableOpacity 
             style={styles.categoryCard}
-            onPress={() => handleCategoryPress(item)}
+            onPress={() => handleCategoryPress(item.name)}
           >
             <View style={styles.imageContainer}>
               <Image 
