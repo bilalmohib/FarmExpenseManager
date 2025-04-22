@@ -19,14 +19,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
 import { getMonthlyExpenses, addMonthlyExpense, updateMonthlyExpense, deleteMonthlyExpense, MonthlyExpense } from '../../firebase/firestore';
 
-export default function ExpensesScreen() {
+export default function BreedingScreen() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [expenses, setExpenses] = useState<MonthlyExpense[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [currentExpense, setCurrentExpense] = useState<MonthlyExpense | null>(null);
   const [expenseType, setExpenseType] = useState('');
-  const [expenseTags, setTags] = useState<string[]>([]);
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
@@ -74,7 +74,6 @@ export default function ExpensesScreen() {
   const handleAddExpense = () => {
     setCurrentExpense(null);
     setExpenseType('');
-    setTags([]);
     setDescription('');
     setAmount('');
     setModalVisible(true);
@@ -83,7 +82,6 @@ export default function ExpensesScreen() {
   const handleEditExpense = (expense: MonthlyExpense) => {
     setCurrentExpense(expense);
     setExpenseType(expense.type);
-    setTags(expense.tags || []);
     setDescription(expense.description || '');
     setAmount(expense.amount.toString());
     setModalVisible(true);
@@ -134,8 +132,8 @@ export default function ExpensesScreen() {
         // Update existing expense
         await updateMonthlyExpense(currentExpense.id, {
           type: expenseType.trim(),
+          group: '', // Assuming group is the correct property
           description: description.trim(),
-          tags: expenseTags,
           amount: amountNum,
           year: selectedYear,
           month: selectedMonth,
@@ -145,13 +143,12 @@ export default function ExpensesScreen() {
         // Add new expense
         await addMonthlyExpense({
           type: expenseType.trim(),
+          group: '', // Assuming group is the correct property
           description: description.trim(),
-          tags: expenseTags,
           amount: amountNum,
           year: selectedYear,
           month: selectedMonth,
           date: new Date().toISOString(),
-          group: ''
         });
       }
       
@@ -209,15 +206,6 @@ export default function ExpensesScreen() {
             {item.description ? (
               <Text style={styles.expenseDescription}>{item.description}</Text>
             ) : null}
-            {item.tags && item.tags.length > 0 && (
-              <View style={styles.tagsContainer}>
-                {item.tags.map((tag: string | number | boolean | React.ReactElement<any, string | React.JSXElementConstructor<any>> | Iterable<React.ReactNode> | React.ReactPortal | null | undefined, index: React.Key | null | undefined) => (
-                  <View key={index} style={styles.tag}>
-                    <Text style={styles.tagText}>{tag}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
             <Text style={styles.expenseDate}>
               {new Date(item.date).toLocaleDateString()}
             </Text>
@@ -343,35 +331,6 @@ export default function ExpensesScreen() {
                 onChangeText={setExpenseType}
                 placeholder="e.g., Feed, Medicine, Labour"
               />
-<TextInput
-  style={styles.input}
-  value={expenseTags.join(', ')}
-  onChangeText={(text) => {
-    // Check if the change is likely from backspace (text is getting shorter)
-    const isBackspace = text.length < expenseTags.join(', ').length;
-    
-    if (!isBackspace) {
-      // Only process commas if not backspacing
-      if (text.endsWith(', ')) {
-        setTags([...expenseTags, '']);
-      } else if (text.endsWith(',')) {
-        setTags([...expenseTags, '']);
-      } else {
-        const tagsArray = text.split(',')
-          .map(tag => tag.trim())
-          .filter(tag => tag);
-        setTags(tagsArray);
-      }
-    } else {
-      // Handle backspace by splitting normally
-      const tagsArray = text.split(',')
-        .map(tag => tag.trim())
-        .filter(tag => tag);
-      setTags(tagsArray);
-    }
-  }}
-  placeholder="e.g., g1, g2, g3"
-/>
               <Text style={styles.inputLabel}>Description</Text>
               <TextInput
                 style={[styles.input, styles.textArea]}
@@ -548,24 +507,6 @@ const styles = StyleSheet.create({
   deleteText: {
     color: '#ff3b30',
   },
-  tagsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 4,
-    marginBottom: 4,
-  },
-  tag: {
-    backgroundColor: '#e0e0e0',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 6,
-    marginBottom: 4,
-  },
-  tagText: {
-    fontSize: 12,
-    color: '#555',
-  },
   addButton: {
     position: 'absolute',
     bottom: 20,
@@ -592,7 +533,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingBottom: 20,
-    maxHeight: '90%',
+    maxHeight: '80%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -658,4 +599,4 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '600',
   },
-});
+}); 

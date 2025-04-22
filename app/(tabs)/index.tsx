@@ -8,6 +8,7 @@ import { useUser } from '@clerk/clerk-expo';
 import SignOutButton from '../components/SignOutButton';
 
 export default function HomeScreen() {
+  
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     activeAnimals: 0,
@@ -210,6 +211,18 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.actionText}>Reports</Text>
           </TouchableOpacity>
+          
+                    {/* 🧬 Breeding */}
+                    <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => router.push('/breeding/index')}
+          >
+            <View style={styles.actionIconContainer}>
+              <Ionicons name="add-circle" size={32} color="#FFFFFF" />
+            </View>
+            <Text style={styles.actionText}>Breeding</Text>
+            </TouchableOpacity>
+
         </View>
       </View>
 

@@ -41,8 +41,10 @@ export interface AnimalRecord {
 }
 
 export interface MonthlyExpense {
+  tags: any;
   id: string;
   type: string;
+  group: string;
   description?: string;
   amount: number;
   year: number;
