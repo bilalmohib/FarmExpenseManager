@@ -9,14 +9,14 @@ import { getStorage } from 'firebase/storage';
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyCOHRIkOgtolY6_vaDBjlYqL4EIUj5dQls",
-  authDomain: "livestockmanagement-6c488.firebaseapp.com",
-  projectId: "livestockmanagement-6c488",
-  storageBucket: "livestockmanagement-6c488.firebasestorage.app",
-  messagingSenderId: "310571190795",
-  appId: "1:310571190795:web:e62bd80fbd41b56500550e",
-  measurementId: "G-YZGWENEWE9"
+  apiKey: "AIzaSyBcO30W-nwkl4d5vwu6Ev2HAtaLM2glQAc",
+  authDomain: "farmexpensemanager.firebaseapp.com",
+  projectId: "farmexpensemanager",
+  storageBucket: "farmexpensemanager.firebasestorage.app",
+  messagingSenderId: "440452578045",
+  appId: "1:440452578045:web:e844aa608f521272d0dc94"
 };
+
 
 // Initialize Firebase - prevent duplicate initialization
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);

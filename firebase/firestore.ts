@@ -23,21 +23,33 @@ import { User } from './auth';
 
 // Types
 export interface AnimalRecord {
+  saleDate: any;
   id: string;
   animalNumber: string;
-  collectionName: string;
-  purchaseDate: string;
+  collectionNames: string[];
+  status: 'active' | 'sold' | 'deceased';
+  category: string;
+  breed: string;
+  weight: number;
+  gender: 'male' | 'female';
   purchasePrice: number;
-  sellingPrice: number;
+  sellingPrice?: number;
+  purchaseDate: string;
   soldDate?: string;
-  description?: string;
+  expenses: AnimalExpense[];
+  healthRecords: Record<string, HealthRecord>;
+  breedingRecords: Record<string, BreedingRecord>;
+  vaccinationRecords: Record<string, VaccinationRecord>;
+  productionRecords: Record<string, ProductionRecord>;
+  notes?: string;
   imageUrl?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  saleDate?: string;
-  loss: number;
-  profit: number;
-  userId?: string;
+  profit?: number;
+  loss?: number;
+  lastWeight?: number;
+  lastWeightDate?: string;
+  growthRate?: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface MonthlyExpense {
@@ -53,6 +65,45 @@ export interface MonthlyExpense {
   createdAt?: string;
   updatedAt?: string;
   userId?: string;
+}
+
+// Types for sub-records
+export interface HealthRecord {
+  date: string;
+  type: string;
+  description: string;
+  cost?: number;
+  nextDueDate?: string;
+}
+
+export interface BreedingRecord {
+  date: string;
+  partnerId?: string;
+  expectedDeliveryDate?: string;
+  status: 'successful' | 'failed' | 'in_progress';
+  notes?: string;
+}
+
+export interface VaccinationRecord {
+  date: string;
+  type: string;
+  nextDueDate?: string;
+  notes?: string;
+}
+
+export interface AnimalExpense {
+  date: string;
+  type: string;
+  amount: number;
+  description?: string;
+}
+
+export interface ProductionRecord {
+  type: 'milk' | 'meat' | 'wool' | 'eggs';
+  quantity: number;
+  unit: string;
+  date: string;
+  notes?: string;
 }
 
 // Helper Functions
@@ -83,37 +134,50 @@ const formatDocumentData = <T extends DocumentData>(docData: DocumentData, docId
   return formattedData;
 };
 
+// Utility Functions
+export const calculateAge = (dateOfBirth: string): number => {
+  const birthDate = new Date(dateOfBirth);
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  
+  return age;
+};
+
+export const calculateGrowthRate = (currentWeight: number, previousWeight: number, days: number): number => {
+  if (!previousWeight || !days) return 0;
+  return (currentWeight - previousWeight) / days;
+};
+
+export const calculateFeedConversionRatio = (feedAmount: number, weightGain: number): number => {
+  if (!weightGain) return 0;
+  return feedAmount / weightGain;
+};
+
 // Collection References
 const getAnimalRecordsRef = () => collection(db, 'animalRecords');
 const getMonthlyExpensesRef = () => collection(db, 'monthlyExpenses');
+const getHealthRecordsRef = (animalId: string) => collection(db, `animalRecords/${animalId}/healthRecords`);
+const getBreedingRecordsRef = (animalId: string) => collection(db, `animalRecords/${animalId}/breedingRecords`);
+const getVaccinationRecordsRef = (animalId: string) => collection(db, `animalRecords/${animalId}/vaccinationRecords`);
+const getExpensesRef = (animalId: string) => collection(db, `animalRecords/${animalId}/expenses`);
 
 // Animal Record Functions
-export const addAnimalRecord = async (record: Omit<AnimalRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<AnimalRecord> => {
-  try {
-    const userId = getCurrentUserId();
-    
-    const docRef = await addDoc(getAnimalRecordsRef(), {
-      ...record,
-      userId,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      profit: 0,
-      loss: 0
-    });
-    
-    const newRecord = {
-      ...record,
-      id: docRef.id,
-      userId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    } as AnimalRecord;
-    
-    return newRecord;
-  } catch (error: any) {
-    console.error('Error adding record:', error);
-    throw new Error(error.message || 'Failed to add record');
-  }
+export const addAnimalRecord = async (data: Omit<AnimalRecord, 'id' | 'createdAt' | 'updatedAt'>) => {
+  const docRef = doc(collection(db, 'animalRecords'));
+  const now = new Date().toISOString();
+  const record: AnimalRecord = {
+    ...data,
+    id: docRef.id,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await setDoc(docRef, record);
+  return record;
 };
 
 export const getAnimalRecords = async (): Promise<AnimalRecord[]> => {
@@ -140,57 +204,72 @@ export const getAnimalRecords = async (): Promise<AnimalRecord[]> => {
 };
 
 // Function alias for backward compatibility
-export const getAllAnimalRecords = getAnimalRecords;
+// export const getAllAnimalRecords = getAnimalRecords;
 
-export const getAnimalRecordById = async (recordId: string): Promise<AnimalRecord | null> => {
-  try {
-    const docRef = doc(db, 'animalRecords', recordId);
-    const docSnap = await getDoc(docRef);
+// export const getAnimalRecordById = async (recordId: string): Promise<AnimalRecord | null> => {
+// console.log("starting getAnimalRecordById");
+//   console.log("recordId",recordId);
+//    const querySnapshot = await getDocs(collection(db, "animalRecords"));
+//   querySnapshot.forEach((doc) => {
+//     console.log(doc.id, " => ", doc.data());
+//   try {
+
+//     if (doc.exists()) {
+//       // No longer verify if record belongs to user
+//       return formatDocumentData<AnimalRecord>(doc.data(), doc.id);
+//     } 
     
-    if (docSnap.exists()) {
-      // No longer verify if record belongs to user
-      return formatDocumentData<AnimalRecord>(docSnap.data(), docSnap.id);
-    } 
+//     return null;
+//   } catch (error: any) {
+//     console.error('Error getting record:', error);
+//     throw new Error(error.message || 'Failed to get record');
+//   }
+//   });
+//   //   const docRef = doc(db, 'animalRecords', recordId);
+//   //   const docSnap = await getDoc(docRef);
+//   //   console.log("docSnap.data()",docSnap.data());
     
-    return null;
-  } catch (error: any) {
-    console.error('Error getting record:', error);
-    throw new Error(error.message || 'Failed to get record');
-  }
+// };
+// function formatDocumentData<T>(data: any, id: string): T {
+//   return { id, ...data } as T;
+// }
+
+// export const getAnimalRecordById = async (recordId: string): Promise<AnimalRecord | null> => {
+//   console.log("starting getAnimalRecordById");
+//   console.log("recordId", recordId);
+
+//   try {
+//     const docRef = doc(db, "animalRecords", recordId);
+//     const docSnap = await getDoc(docRef);
+
+//     if (docSnap.exists()) {
+//       return formatDocumentData<AnimalRecord>(docSnap.data(), docSnap.id);
+//     } else {
+//       console.log("No such document!");
+//       return null;
+//     }
+//   } catch (error: any) {
+//     console.error("Error getting record:", error);
+//     throw new Error(error.message || "Failed to get record");
+//   }
+// };
+
+export const getAllAnimalRecords = async (): Promise<AnimalRecord[]> => {
+  const querySnapshot = await getDocs(collection(db, "animalRecords"));
+  const records: AnimalRecord[] = querySnapshot.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data()
+  })) as AnimalRecord[];
+
+  return records;
 };
 
-export const updateAnimalRecord = async (recordId: string, data: Partial<AnimalRecord>): Promise<AnimalRecord> => {
-  try {
-    const userId = getCurrentUserId();
-    const docRef = doc(db, 'animalRecords', recordId);
-    
-    // First, check if the document exists
-    const docSnap = await getDoc(docRef);
-    if (!docSnap.exists()) {
-      throw new Error(`Record with id ${recordId} not found`);
-    }
-    
-    // No longer verify record ownership
-    
-    // Prepare update data (remove id and userId if present)
-    const { id, userId: _, ...updateData } = data;
-    
-    await updateDoc(docRef, {
-      ...updateData,
-      updatedAt: serverTimestamp()
-    });
-    
-    // Fetch the updated document
-    const updatedDocSnap = await getDoc(docRef);
-    const updatedData = updatedDocSnap.data();
-    if (!updatedData) {
-      throw new Error('Failed to retrieve updated record data');
-    }
-    return formatDocumentData<AnimalRecord>(updatedData, updatedDocSnap.id);
-  } catch (error: any) {
-    console.error('Error updating record:', error);
-    throw new Error(error.message || 'Failed to update record');
-  }
+export const updateAnimalRecord = async (id: string, data: Partial<AnimalRecord>) => {
+  const docRef = doc(db, 'animalRecords', id);
+  await updateDoc(docRef, {
+    ...data,
+    updatedAt: new Date().toISOString(),
+  });
 };
 
 export const deleteAnimalRecord = async (recordId: string): Promise<void> => {
@@ -405,5 +484,132 @@ export const deleteMonthlyExpense = async (id: string): Promise<void> => {
   } catch (error: any) {
     console.error('Error deleting expense:', error);
     throw new Error(error.message || 'Failed to delete expense');
+  }
+};
+
+// Health Record Functions
+export const addHealthRecord = async (animalId: string, healthRecord: HealthRecord): Promise<void> => {
+  try {
+    const docRef = await addDoc(getHealthRecordsRef(animalId), {
+      ...healthRecord,
+      createdAt: serverTimestamp()
+    });
+    
+    // Update the animal record with the new health record
+    const animalRef = doc(db, 'animalRecords', animalId);
+    await updateDoc(animalRef, {
+      lastHealthCheck: healthRecord.date,
+      nextHealthCheck: healthRecord.nextDueDate,
+      [`healthRecords.${docRef.id}`]: healthRecord
+    });
+  } catch (error: any) {
+    console.error('Error adding health record:', error);
+    throw new Error(error.message || 'Failed to add health record');
+  }
+};
+
+// Breeding Record Functions
+export const addBreedingRecord = async (animalId: string, breedingRecord: BreedingRecord): Promise<void> => {
+  try {
+    const docRef = await addDoc(getBreedingRecordsRef(animalId), {
+      ...breedingRecord,
+      createdAt: serverTimestamp()
+    });
+    
+    // Update the animal record with the new breeding record
+    const animalRef = doc(db, 'animalRecords', animalId);
+    await updateDoc(animalRef, {
+      lastBreeding: breedingRecord.date,
+      nextBreeding: breedingRecord.expectedDeliveryDate,
+      [`breedingRecords.${docRef.id}`]: breedingRecord
+    });
+  } catch (error: any) {
+    console.error('Error adding breeding record:', error);
+    throw new Error(error.message || 'Failed to add breeding record');
+  }
+};
+
+// Vaccination Record Functions
+export const addVaccinationRecord = async (animalId: string, vaccinationRecord: VaccinationRecord): Promise<void> => {
+  try {
+    const docRef = await addDoc(getVaccinationRecordsRef(animalId), {
+      ...vaccinationRecord,
+      createdAt: serverTimestamp()
+    });
+    
+    // Update the animal record with the new vaccination record
+    const animalRef = doc(db, 'animalRecords', animalId);
+    await updateDoc(animalRef, {
+      lastVaccination: vaccinationRecord.date,
+      nextVaccination: vaccinationRecord.nextDueDate,
+      [`vaccinationRecords.${docRef.id}`]: vaccinationRecord
+    });
+  } catch (error: any) {
+    console.error('Error adding vaccination record:', error);
+    throw new Error(error.message || 'Failed to add vaccination record');
+  }
+};
+
+// Expense Functions
+export const addExpense = async (animalId: string, expense: AnimalExpense): Promise<void> => {
+  try {
+    const docRef = await addDoc(getExpensesRef(animalId), {
+      ...expense,
+      createdAt: serverTimestamp()
+    });
+    
+    // Update the animal record with the new expense
+    const animalRef = doc(db, 'animalRecords', animalId);
+    await updateDoc(animalRef, {
+      [`expenses.${docRef.id}`]: expense
+    });
+  } catch (error: any) {
+    console.error('Error adding expense:', error);
+    throw new Error(error.message || 'Failed to add expense');
+  }
+};
+
+export const updateAnimalWeight = async (animalId: string, weight: number): Promise<void> => {
+  try {
+    const animalRef = doc(db, 'animalRecords', animalId);
+    const animalSnap = await getDoc(animalRef);
+    
+    if (!animalSnap.exists()) {
+      throw new Error('Animal not found');
+    }
+    
+    const animalData = animalSnap.data() as AnimalRecord;
+    const previousWeight = animalData.lastWeight || 0;
+    const previousWeightDate = animalData.lastWeightDate || new Date().toISOString();
+    
+    const days = Math.floor((new Date().getTime() - new Date(previousWeightDate).getTime()) / (1000 * 60 * 60 * 24));
+    const growthRate = calculateGrowthRate(weight, previousWeight, days);
+    
+    await updateDoc(animalRef, {
+      lastWeight: weight,
+      lastWeightDate: new Date().toISOString(),
+      growthRate
+    });
+  } catch (error: any) {
+    console.error('Error updating weight:', error);
+    throw new Error(error.message || 'Failed to update weight');
+  }
+};
+
+export const updateAnimalProduction = async (
+  animalId: string,
+  productionType: 'milk' | 'meat' | 'wool' | 'eggs',
+  data: Partial<NonNullable<AnimalRecord['productionRecords']>[typeof productionType]>
+): Promise<void> => {
+  try {
+    const animalRef = doc(db, 'animalRecords', animalId);
+    const field = `productionRecords.${productionType}`;
+    
+    await updateDoc(animalRef, {
+      [field]: data
+    });
+  } catch (error: any) {
+    console.error(`Error updating ${productionType} production:`, error);
+    throw new Error(error.message || `Failed to update ${productionType} production`);
   }
 };

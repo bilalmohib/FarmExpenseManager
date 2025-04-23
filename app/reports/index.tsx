@@ -7,620 +7,713 @@ import {
   TouchableOpacity, 
   ActivityIndicator,
   Dimensions,
-  Alert 
+  Alert,
+  SafeAreaView,
+  StatusBar
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
 import { getAllAnimalRecords, getMonthlyExpenses, AnimalRecord, MonthlyExpense } from '../../firebase/firestore';
+import { PieChart, BarChart, LineChart } from 'react-native-chart-kit';
 
-// Temporary Chart Components
-// In a real implementation, you would use a library like react-native-chart-kit
-const PieChart = ({ data, colors }: { data: { value: number, label: string }[], colors: string[] }) => {
-  const total = data.reduce((sum, item) => sum + item.value, 0);
-  const getPercentage = (value: number) => (value / total) * 100;
-  
-  return (
-    <View style={styles.chartContainer}>
-      <View style={styles.pieContainer}>
-        <View style={styles.pie}>
-          {data.map((item, index) => {
-            const angle = getPercentage(item.value) * 3.6; // 360 degrees = 100%
-            return (
-              <View 
-                key={index}
-                style={{
-                  position: 'absolute',
-                  width: '100%',
-                  height: '100%',
-                  transform: [{ rotate: `${index === 0 ? 0 : data.slice(0, index).reduce((sum, i) => sum + getPercentage(i.value) * 3.6, 0)}deg` }],
-                }}
-              >
-                <View 
-                  style={{
-                    position: 'absolute',
-                    width: '100%',
-                    height: '100%',
-                    borderRadius: 100,
-                    backgroundColor: colors[index % colors.length],
-                    clip: 'rect(0, 100px, 100px, 50px)',
-                    transform: [{ rotate: `${Math.min(angle, 180)}deg` }]
-                  }}
-                />
-                {angle > 180 && (
-                  <View 
-                    style={{
-                      position: 'absolute',
-                      width: '100%',
-                      height: '100%',
-                      borderRadius: 100,
-                      backgroundColor: colors[index % colors.length],
-                      clip: 'rect(0, 50px, 100px, 0)',
-                      transform: [{ rotate: `${180}deg` }, { rotate: `${Math.min(angle - 180, 180)}deg` }]
-                    }}
-                  />
-                )}
-              </View>
-            );
-          })}
-          <View style={styles.pieCenter} />
-        </View>
-      </View>
-      
-      <View style={styles.chartLegend}>
-        {data.map((item, index) => (
-          <View key={index} style={styles.legendItem}>
-            <View style={[styles.legendMarker, { backgroundColor: colors[index % colors.length] }]} />
-            <Text style={styles.legendLabel}>{item.label}</Text>
-            <Text style={styles.legendValue}>{item.value.toFixed(2)}</Text>
-            <Text style={styles.legendPercentage}>({getPercentage(item.value).toFixed(1)}%)</Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
+const screenWidth = Dimensions.get('window').width;
+
+// Chart configurations
+const chartConfig = {
+  backgroundGradientFrom: '#FFFFFF',
+  backgroundGradientTo: '#FFFFFF',
+  color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+  strokeWidth: 2,
+  barPercentage: 0.7,
+  decimalPlaces: 0,
 };
 
-const BarChart = ({ data, color }: { data: { value: number, label: string }[], color: string }) => {
-  const maxValue = Math.max(...data.map(item => item.value)) * 1.1;
-  
-  return (
-    <View style={styles.chartContainer}>
-      <View style={styles.barChartContainer}>
-        {data.map((item, index) => {
-          const height = (item.value / maxValue) * 150;
-          return (
-            <View key={index} style={styles.barColumn}>
-              <Text style={styles.barValue}>{item.value.toFixed(0)}</Text>
-              <View style={[styles.bar, { height, backgroundColor: color }]} />
-              <Text style={styles.barLabel}>{item.label}</Text>
-            </View>
-          );
-        })}
-      </View>
-    </View>
-  );
-};
+interface CollectionStats {
+  totalExpense: number;
+  totalSale: number;
+  profit: number;
+  loss: number;
+  animalCount: number;
+  animals: Array<{
+    animalNumber: string;
+    profit: number;
+    loss: number;
+  }>;
+}
+
+interface ReportStats {
+  totalExpense: number;
+  totalSale: number;
+  profit: number;
+  loss: number;
+  collections: Record<string, CollectionStats>;
+  animals: Record<string, {
+    totalExpense: number;
+    salePrice: number;
+    profit: number;
+    loss: number;
+    status: string;
+  }>;
+}
 
 export default function ReportsScreen() {
   const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState<'month' | 'year' | 'all'>('month');
   const [records, setRecords] = useState<AnimalRecord[]>([]);
-  const [expenses, setExpenses] = useState<MonthlyExpense[]>([]);
-  const [stats, setStats] = useState({
-    totalProfit: 0,
-    totalLoss: 0,
-    netProfitLoss: 0,
-    collectionStats: [] as Array<{
-      collection: string;
-      count: number;
-      profit: number;
-      loss: number;
-      netProfitLoss: number;
-    }>,
+  const [stats, setStats] = useState<ReportStats>({
+    totalExpense: 0,
+    totalSale: 0,
+    profit: 0,
+    loss: 0,
+    collections: {},
+    animals: {}
   });
+  const [selectedPeriod, setSelectedPeriod] = useState<'month' | 'year' | 'all'>('all');
+  const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
 
   useEffect(() => {
-    loadData();
+    loadRecords();
   }, []);
 
   useEffect(() => {
     calculateStats();
-  }, [records, expenses, period]);
+  }, [records, selectedPeriod]);
 
-  const loadData = async () => {
+  const loadRecords = async () => {
     try {
       setLoading(true);
-      
-      // Load animal records
       const allRecords = await getAllAnimalRecords();
       setRecords(allRecords);
-      
-      // Load monthly expenses
-      const allExpenses = await getMonthlyExpenses();
-      setExpenses(allExpenses);
     } catch (error) {
-      console.error('Error loading report data:', error);
-      Alert.alert('Error', 'Failed to load report data');
+      console.error('Error loading records:', error);
+      Alert.alert('Error', 'Failed to load records');
     } finally {
       setLoading(false);
     }
   };
 
   const calculateStats = () => {
-    if (!records.length) return;
-    
-    // Filter records by period
-    const filteredRecords = filterRecordsByPeriod(records);
-    
-    // Filter expenses by period
-    const filteredExpenses = filterExpensesByPeriod(expenses);
-    
-    // Calculate total profit and loss
-    const totalProfit = filteredRecords.reduce((sum, record) => sum + (record.profit || 0), 0);
-    const totalLoss = filteredRecords.reduce((sum, record) => sum + (record.loss || 0), 0) 
-      + filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0);
-    
-    // Get unique collections
-    const collections = Array.from(new Set(filteredRecords.map(record => record.collectionName)));
-    
-    // Calculate stats for each collection
-    const collectionStats = collections.map(collection => {
-      const collectionRecords = filteredRecords.filter(record => record.collectionName === collection);
-      const count = collectionRecords.length;
-      const profit = collectionRecords.reduce((sum, record) => sum + (record.profit || 0), 0);
-      const loss = collectionRecords.reduce((sum, record) => sum + (record.loss || 0), 0);
-      
-      return {
-        collection,
-        count,
+    const newStats: ReportStats = {
+      totalExpense: 0,
+      totalSale: 0,
+      profit: 0,
+      loss: 0,
+      collections: {},
+      animals: {}
+    };
+
+    records.forEach(record => {
+      // Calculate total expenses for the animal
+      const animalExpenses = Object.values(record.expenses || {}).reduce((sum, expense) => sum + expense.amount, 0);
+      const totalExpense = record.purchasePrice + animalExpenses;
+      const salePrice = record.sellingPrice || 0; // Use sellingPrice from database
+      let profit = 0;
+      let loss = 0;
+
+      // Calculate profit/loss for the animal only if it's sold
+      if (record.status === 'sold') {
+        profit = salePrice > totalExpense ? salePrice - totalExpense : 0;
+        loss = salePrice < totalExpense ? totalExpense - salePrice : 0;
+      }
+
+      // Update animal stats
+      newStats.animals[record.id] = {
+        totalExpense,
+        salePrice,
         profit,
         loss,
-        netProfitLoss: profit - loss
+        status: record.status || 'unsold'
       };
-    });
-    
-    // Sort collections by profit (desc)
-    collectionStats.sort((a, b) => b.netProfitLoss - a.netProfitLoss);
-    
-    setStats({
-      totalProfit,
-      totalLoss,
-      netProfitLoss: totalProfit - totalLoss,
-      collectionStats
-    });
-  };
 
-  const filterRecordsByPeriod = (records: AnimalRecord[]) => {
-    const now = new Date();
-    const thisMonth = now.getMonth();
-    const thisYear = now.getFullYear();
-    
-    return records.filter(record => {
-      const recordDate = new Date(record.purchaseDate);
-      
-      if (period === 'month') {
-        return recordDate.getMonth() === thisMonth && recordDate.getFullYear() === thisYear;
-      } else if (period === 'year') {
-        return recordDate.getFullYear() === thisYear;
-      }
-      
-      return true; // 'all' period
-    });
-  };
+      // Update collection stats
+      record.collectionNames.forEach(collectionName => {
+        if (!newStats.collections[collectionName]) {
+          newStats.collections[collectionName] = {
+            totalExpense: 0,
+            totalSale: 0,
+            profit: 0,
+            loss: 0,
+            animalCount: 0,
+            animals: []
+          };
+        }
 
-  const filterExpensesByPeriod = (expenses: MonthlyExpense[]) => {
-    const now = new Date();
-    const thisMonth = now.getMonth() + 1; // Month is 1-indexed in our data
-    const thisYear = now.getFullYear();
-    
-    return expenses.filter(expense => {
-      if (period === 'month') {
-        return expense.month === thisMonth && expense.year === thisYear;
-      } else if (period === 'year') {
-        return expense.year === thisYear;
-      }
-      
-      return true; // 'all' period
+        const collection = newStats.collections[collectionName];
+        collection.totalExpense += totalExpense;
+        collection.totalSale += salePrice;
+        collection.profit += profit;
+        collection.loss += loss;
+        collection.animalCount += 1;
+        collection.animals.push({
+          animalNumber: record.animalNumber,
+          profit,
+          loss
+        });
+      });
+
+      // Update overall stats
+      newStats.totalExpense += totalExpense;
+      newStats.totalSale += salePrice;
+      newStats.profit += profit;
+      newStats.loss += loss;
     });
+
+    setStats(newStats);
   };
 
   const formatCurrency = (amount: number) => {
-    return `₹${amount.toFixed(2)}`;
+    return `₹${Math.abs(amount).toFixed(2)}`;
   };
 
-  const getChartData = () => {
-    const chartColors = ['#4CAF50', '#FFC107', '#2196F3', '#9C27B0', '#F44336'];
+  // Prepare data for overall profit/loss pie chart
+  const getProfitLossChartData = () => {
+    const profitLossData = [
+      {
+        name: 'Profit',
+        value: stats.profit,
+        color: '#4CAF50',
+        legendFontColor: '#4CAF50',
+        legendFontSize: 12
+      },
+      {
+        name: 'Loss',
+        value: stats.loss,
+        color: '#F44336',
+        legendFontColor: '#F44336',
+        legendFontSize: 12
+      }
+    ];
     
-    // Collection profit/loss data for pie chart
-    const pieData = stats.collectionStats.map(stat => ({
-      label: stat.collection,
-      value: Math.abs(stat.netProfitLoss)
+    // Filter out zero values
+    return profitLossData.filter(item => item.value > 0);
+  };
+
+  // Prepare data for collection-wise bar chart
+  const getCollectionChartData = () => {
+    const collectionData = Object.entries(stats.collections).map(([name, data]) => ({
+      name,
+      profit: data.profit || 0,
+      loss: data.loss || 0
     }));
-    
-    // Bar chart data
-    const barData = stats.collectionStats.map(stat => ({
-      label: stat.collection,
-      value: stat.count
-    }));
-    
+
     return {
-      pieData,
-      pieColors: chartColors,
-      barData,
-      barColor: Colors.light.tint
+      labels: collectionData.map(item => item.name),
+      datasets: [{
+        data: collectionData.map(item => item.profit - item.loss),
+        color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`,
+        strokeWidth: 2
+      }],
+      legend: ['Net Profit/Loss']
     };
   };
 
-  const handleExport = () => {
-    // In a real implementation, this would export the report
-    Alert.alert('Export', 'This feature is not implemented yet');
+  // Prepare data for animal-wise visualization
+  const getAnimalChartData = () => {
+    const animalData = Object.entries(stats.collections)
+      .flatMap(([_, data]) => data.animals || [])
+      .map(animal => ({
+        name: animal.animalNumber,
+        profit: animal.profit || 0,
+        loss: animal.loss || 0
+      }));
+
+    if (animalData.length === 0) {
+      return {
+        labels: ['No Data'],
+        datasets: [{
+          data: [0],
+          color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`,
+          strokeWidth: 2
+        }],
+        legend: ['No Data']
+      };
+    }
+
+    return {
+      labels: animalData.map(item => item.name),
+      datasets: [{
+        data: animalData.map(item => item.profit - item.loss),
+        color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`,
+        strokeWidth: 2
+      }],
+      legend: ['Net Profit/Loss']
+    };
   };
 
-  const renderPeriodSelector = () => {
-    return (
-      <View style={styles.periodSelector}>
-        <TouchableOpacity
-          style={[styles.periodButton, period === 'month' && styles.activePeriodButton]}
-          onPress={() => setPeriod('month')}
-        >
-          <Text style={[styles.periodText, period === 'month' && styles.activePeriodText]}>
-            This Month
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.periodButton, period === 'year' && styles.activePeriodButton]}
-          onPress={() => setPeriod('year')}
-        >
-          <Text style={[styles.periodText, period === 'year' && styles.activePeriodText]}>
-            This Year
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.periodButton, period === 'all' && styles.activePeriodButton]}
-          onPress={() => setPeriod('all')}
-        >
-          <Text style={[styles.periodText, period === 'all' && styles.activePeriodText]}>
-            All Time
-          </Text>
-        </TouchableOpacity>
+  const renderCollectionStats = () => {
+    return Object.entries(stats.collections).map(([name, data]) => (
+      <View key={name} style={styles.collectionCard}>
+        <Text style={styles.collectionName}>{name}</Text>
+        <View style={styles.divider} />
+        <View style={styles.statsContainer}>
+          <View style={styles.statItem}>
+            <Text style={styles.statLabel}>Total Expense</Text>
+            <Text style={styles.statValue}>{formatCurrency(data.totalExpense)}</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statLabel}>Total Sale</Text>
+            <Text style={styles.statValue}>{formatCurrency(data.totalSale)}</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statLabel}>Profit</Text>
+            <Text style={[styles.statValue, styles.profitText]}>{formatCurrency(data.profit)}</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statLabel}>Loss</Text>
+            <Text style={[styles.statValue, styles.lossText]}>{formatCurrency(data.loss)}</Text>
+          </View>
+        </View>
+        <View style={styles.animalCountContainer}>
+          <Ionicons name="paw" size={16} color="#666" />
+          <Text style={styles.animalCountText}>{data.animalCount} Animals</Text>
+        </View>
       </View>
-    );
+    ));
   };
 
-  const { pieData, pieColors, barData, barColor } = getChartData();
+  const renderAnimalStats = () => {
+    return Object.entries(stats.animals).map(([id, data]) => {
+      const record = records.find(r => r.id === id);
+      return (
+        <View key={id} style={styles.animalCard}>
+          <View style={styles.animalHeader}>
+            <Text style={styles.animalName}>ID: {record?.animalNumber}</Text>
+            <View style={[
+              styles.statusBadge, 
+              data.status === 'sold' ? styles.soldBadge : styles.unsoldBadge
+            ]}>
+              <Text style={styles.statusText}>{data.status}</Text>
+            </View>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.statsContainer}>
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>Total Expense</Text>
+              <Text style={styles.statValue}>{formatCurrency(data.totalExpense)}</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>Sale Price</Text>
+              <Text style={styles.statValue}>{formatCurrency(data.salePrice)}</Text>
+            </View>
+            {data.status === 'sold' && (
+              <View style={styles.statItem}>
+                <Text style={styles.statLabel}>{data.profit > 0 ? 'Profit' : 'Loss'}</Text>
+                {data.profit > 0 ? (
+                  <Text style={[styles.statValue, styles.profitText]}>{formatCurrency(data.profit)}</Text>
+                ) : (
+                  <Text style={[styles.statValue, styles.lossText]}>{formatCurrency(data.loss)}</Text>
+                )}
+              </View>
+            )}
+          </View>
+        </View>
+      );
+    });
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color={Colors.light.tint} />
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <View style={styles.container}>
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.light.tint} />
-          <Text style={styles.loadingText}>Generating reports...</Text>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <View style={styles.header}>
+        <View style={styles.titleContainer}>
+          <Ionicons name="stats-chart" size={24} color={Colors.light.tint} />
+          <Text style={styles.title}>Farm Reports</Text>
         </View>
-      ) : (
-        <ScrollView style={styles.content}>
-          {renderPeriodSelector()}
-          
-          <View style={styles.summaryCards}>
-            <View style={[styles.summaryCard, { backgroundColor: '#E8F5E9' }]}>
-              <Text style={styles.summaryLabel}>Total Profit</Text>
-              <Text style={[styles.summaryValue, { color: '#4CAF50' }]}>
-                {formatCurrency(stats.totalProfit)}
-              </Text>
+        <View style={styles.periodSelector}>
+          <TouchableOpacity
+            style={[styles.periodButton, selectedPeriod === 'month' && styles.selectedPeriod]}
+            onPress={() => setSelectedPeriod('month')}
+          >
+            <Text style={[styles.periodButtonText, selectedPeriod === 'month' && styles.selectedPeriodText]}>Month</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.periodButton, selectedPeriod === 'year' && styles.selectedPeriod]}
+            onPress={() => setSelectedPeriod('year')}
+          >
+            <Text style={[styles.periodButtonText, selectedPeriod === 'year' && styles.selectedPeriodText]}>Year</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.periodButton, selectedPeriod === 'all' && styles.selectedPeriod]}
+            onPress={() => setSelectedPeriod('all')}
+          >
+            <Text style={[styles.periodButtonText, selectedPeriod === 'all' && styles.selectedPeriodText]}>All Time</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.overallStats}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="analytics" size={20} color={Colors.light.tint} />
+            <Text style={styles.sectionTitle}>Overall Statistics</Text>
+          </View>
+          <View style={styles.statsCard}>
+            <View style={styles.statsGrid}>
+              <View style={styles.statBox}>
+                <Text style={styles.statBoxLabel}>Total Expense</Text>
+                <Text style={styles.statBoxValue}>{formatCurrency(stats.totalExpense)}</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={styles.statBoxLabel}>Total Sale</Text>
+                <Text style={styles.statBoxValue}>{formatCurrency(stats.totalSale)}</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={styles.statBoxLabel}>Total Profit</Text>
+                <Text style={[styles.statBoxValue, styles.profitText]}>{formatCurrency(stats.profit)}</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={styles.statBoxLabel}>Total Loss</Text>
+                <Text style={[styles.statBoxValue, styles.lossText]}>{formatCurrency(stats.loss)}</Text>
+              </View>
             </View>
-            
-            <View style={[styles.summaryCard, { backgroundColor: '#FFEBEE' }]}>
-              <Text style={styles.summaryLabel}>Total Loss</Text>
-              <Text style={[styles.summaryValue, { color: '#F44336' }]}>
-                {formatCurrency(stats.totalLoss)}
-              </Text>
-            </View>
-            
-            <View style={[styles.summaryCard, { 
-              backgroundColor: stats.netProfitLoss >= 0 ? '#E8F5E9' : '#FFEBEE' 
-            }]}>
-              <Text style={styles.summaryLabel}>Net Profit/Loss</Text>
-              <Text style={[styles.summaryValue, { 
-                color: stats.netProfitLoss >= 0 ? '#4CAF50' : '#F44336' 
-              }]}>
-                {formatCurrency(Math.abs(stats.netProfitLoss))}
-              </Text>
+            <View style={styles.divider} />
+            <View style={styles.netResultContainer}>
+              <Text style={styles.netResultLabel}>Net Result:</Text>
+              {stats.profit - stats.loss >= 0 ? (
+                <Text style={[styles.netResultValue, styles.profitText]}>
+                  {formatCurrency(stats.profit - stats.loss)} (Profit)
+                </Text>
+              ) : (
+                <Text style={[styles.netResultValue, styles.lossText]}>
+                  {formatCurrency(stats.loss - stats.profit)} (Loss)
+                </Text>
+              )}
             </View>
           </View>
-          
-          <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Profit/Loss Breakdown</Text>
-            {pieData.length > 0 ? (
-              <PieChart data={pieData} colors={pieColors} />
-            ) : (
-              <View style={styles.noDataContainer}>
-                <Text style={styles.noDataText}>No profit/loss data available</Text>
-              </View>
-            )}
+
+          {getProfitLossChartData().length > 0 && (
+            <View style={styles.chartContainer}>
+              <Text style={styles.chartTitle}>Profit vs Loss</Text>
+              <PieChart
+                data={getProfitLossChartData()}
+                width={screenWidth - 48}
+                height={200}
+                chartConfig={chartConfig}
+                accessor="value"
+                backgroundColor="transparent"
+                paddingLeft="15"
+                absolute
+              />
+            </View>
+          )}
+        </View>
+
+        <View style={styles.collectionsStats}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="folder-open" size={20} color={Colors.light.tint} />
+            <Text style={styles.sectionTitle}>Collection Statistics</Text>
           </View>
           
-          <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Animal Count by Collection</Text>
-            {barData.length > 0 ? (
-              <BarChart data={barData} color={barColor} />
-            ) : (
-              <View style={styles.noDataContainer}>
-                <Text style={styles.noDataText}>No animal data available</Text>
-              </View>
-            )}
+          {Object.keys(stats.collections).length > 0 && (
+            <View style={styles.chartContainer}>
+              <Text style={styles.chartTitle}>Collection Performance</Text>
+              <BarChart
+                data={getCollectionChartData()}
+                width={screenWidth - 48}
+                height={220}
+                yAxisLabel="₹"
+                yAxisSuffix=""
+                chartConfig={{
+                  backgroundColor: '#ffffff',
+                  backgroundGradientFrom: '#ffffff',
+                  backgroundGradientTo: '#ffffff',
+                  decimalPlaces: 0,
+                  color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`,
+                  labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+                  barPercentage: 0.5,
+                }}
+                verticalLabelRotation={30}
+                fromZero={true}
+              />
+            </View>
+          )}
+          
+          {renderCollectionStats()}
+        </View>
+
+        <View style={styles.animalsStats}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="ios-paw" size={20} color={Colors.light.tint} />
+            <Text style={styles.sectionTitle}>Animal Statistics</Text>
           </View>
           
-          <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Collection Performance</Text>
-            {stats.collectionStats.length > 0 ? (
-              <View style={styles.collectionListContainer}>
-                {stats.collectionStats.map((stat, index) => (
-                  <View key={index} style={styles.collectionItem}>
-                    <View style={styles.collectionHeader}>
-                      <Text style={styles.collectionName}>{stat.collection}</Text>
-                      <Text style={styles.collectionCount}>{stat.count} animals</Text>
-                    </View>
-                    
-                    <View style={styles.collectionStats}>
-                      <View style={styles.statColumn}>
-                        <Text style={styles.statLabel}>Profit</Text>
-                        <Text style={[styles.statValue, { color: '#4CAF50' }]}>
-                          {formatCurrency(stat.profit)}
-                        </Text>
-                      </View>
-                      
-                      <View style={styles.statColumn}>
-                        <Text style={styles.statLabel}>Loss</Text>
-                        <Text style={[styles.statValue, { color: '#F44336' }]}>
-                          {formatCurrency(stat.loss)}
-                        </Text>
-                      </View>
-                      
-                      <View style={styles.statColumn}>
-                        <Text style={styles.statLabel}>Net</Text>
-                        <Text style={[styles.statValue, { 
-                          color: stat.netProfitLoss >= 0 ? '#4CAF50' : '#F44336' 
-                        }]}>
-                          {formatCurrency(Math.abs(stat.netProfitLoss))}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <View style={styles.noDataContainer}>
-                <Text style={styles.noDataText}>No collection data available</Text>
-              </View>
-            )}
-          </View>
-        </ScrollView>
-      )}
-    </View>
+          {getAnimalChartData() && (
+            <View style={styles.chartContainer}>
+              <Text style={styles.chartTitle}>Animal Profit/Loss</Text>
+              <LineChart
+                data={getAnimalChartData()}
+                width={screenWidth - 48}
+                height={220}
+                yAxisLabel="₹"
+                yAxisSuffix=""
+                chartConfig={{
+                  backgroundColor: '#ffffff',
+                  backgroundGradientFrom: '#ffffff',
+                  backgroundGradientTo: '#ffffff',
+                  decimalPlaces: 0,
+                  color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`,
+                  labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+                }}
+                verticalLabelRotation={30}
+                fromZero={true}
+              />
+            </View>
+          )}
+          
+          {renderAnimalStats()}
+        </View>
+        
+        {/* Adding some bottom padding for better scrolling experience */}
+        <View style={styles.bottomPadding} />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F5F7FA',
   },
-  loadingContainer: {
-    flex: 1,
+  centered: {
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loadingText: {
-    marginTop: 10,
-    color: '#666',
+  header: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+    elevation: 2,
   },
-  content: {
-    flex: 1,
-    padding: 15,
+  titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginLeft: 8,
+    color: '#333333',
   },
   periodSelector: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F0F0F0',
     borderRadius: 8,
-    marginBottom: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-    overflow: 'hidden',
+    padding: 4,
   },
   periodButton: {
     flex: 1,
-    paddingVertical: 12,
+    padding: 10,
+    borderRadius: 6,
     alignItems: 'center',
   },
-  activePeriodButton: {
+  periodButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#555555',
+  },
+  selectedPeriod: {
     backgroundColor: Colors.light.tint,
   },
-  periodText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#666',
-  },
-  activePeriodText: {
+  selectedPeriodText: {
     color: '#FFFFFF',
-  },
-  summaryCards: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 15,
-  },
-  summaryCard: {
-    width: '32%',
-    borderRadius: 8,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  summaryLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 5,
-  },
-  summaryValue: {
-    fontSize: 16,
     fontWeight: 'bold',
   },
-  sectionContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    padding: 15,
-    marginBottom: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  overallStats: {
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
+    marginLeft: 8,
+    color: '#333333',
   },
-  chartContainer: {
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  pieContainer: {
-    width: 200,
-    height: 200,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  pie: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    overflow: 'hidden',
-    position: 'relative',
-    backgroundColor: '#F5F5F5',
-  },
-  pieCenter: {
-    position: 'absolute',
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+  statsCard: {
     backgroundColor: '#FFFFFF',
-    zIndex: 10,
+    padding: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    marginBottom: 16,
   },
-  chartLegend: {
-    width: '100%',
-  },
-  legendItem: {
+  statsGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
     marginBottom: 8,
   },
-  legendMarker: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    marginRight: 8,
+  statBox: {
+    width: '50%',
+    padding: 8,
   },
-  legendLabel: {
-    flex: 1,
-    fontSize: 14,
-    color: '#333',
-  },
-  legendValue: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#333',
-    marginRight: 8,
-  },
-  legendPercentage: {
+  statBoxLabel: {
     fontSize: 12,
-    color: '#666',
-    width: 50,
-    textAlign: 'right',
+    color: '#666666',
+    marginBottom: 4,
   },
-  barChartContainer: {
+  statBoxValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333333',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#EEEEEE',
+    marginVertical: 12,
+  },
+  netResultContainer: {
     flexDirection: 'row',
-    height: 200,
-    alignItems: 'flex-end',
-    justifyContent: 'space-around',
-    width: '100%',
-    paddingHorizontal: 10,
-  },
-  barColumn: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  bar: {
-    width: '70%',
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
-  },
-  barLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 5,
-    textAlign: 'center',
-  },
-  barValue: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#333',
-    marginBottom: 5,
-  },
-  noDataContainer: {
-    height: 100,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  noDataText: {
-    fontSize: 14,
-    color: '#999',
+  netResultLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333333',
+    marginRight: 8,
   },
-  collectionListContainer: {
-    marginBottom: 10,
+  netResultValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
   },
-  collectionItem: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEEEEE',
-    paddingVertical: 10,
+  collectionsStats: {
+    marginBottom: 24,
   },
-  collectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 5,
+  collectionCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   collectionName: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#333',
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333333',
+    marginBottom: 4,
   },
-  collectionCount: {
-    fontSize: 14,
-    color: '#666',
-  },
-  collectionStats: {
+  statsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
   },
-  statColumn: {
-    flex: 1,
-    alignItems: 'center',
+  statItem: {
+    width: '50%',
+    paddingVertical: 6,
   },
   statLabel: {
     fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
+    color: '#666666',
+    marginBottom: 2,
   },
   statValue: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
+    color: '#333333',
   },
-}); 
+  animalCountContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  animalCountText: {
+    marginLeft: 4,
+    fontSize: 14,
+    color: '#666666',
+  },
+  animalsStats: {
+    marginBottom: 24,
+  },
+  animalCard: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  animalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  animalName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333333',
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  soldBadge: {
+    backgroundColor: '#E8F5E9',
+  },
+  unsoldBadge: {
+    backgroundColor: '#FFF8E1',
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+  },
+  profitText: {
+    color: '#4CAF50',
+    fontWeight: 'bold',
+  },
+  lossText: {
+    color: '#F44336',
+    fontWeight: 'bold',
+  },
+  chartContainer: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    alignItems: 'center'
+  },
+  chartTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    textAlign: 'center',
+    color: '#333333'
+  },
+  bottomPadding: {
+    height: 24
+  }
+});

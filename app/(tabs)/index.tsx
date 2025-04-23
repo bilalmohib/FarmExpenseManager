@@ -215,10 +215,10 @@ export default function HomeScreen() {
                     {/* 🧬 Breeding */}
                     <TouchableOpacity 
             style={styles.actionButton}
-            onPress={() => router.push('/breeding/index')}
+            onPress={() => router.push('/breeding')}
           >
-            <View style={styles.actionIconContainer}>
-              <Ionicons name="add-circle" size={32} color="#FFFFFF" />
+            <View style={[styles.actionIconContainer, { backgroundColor: '#4CAF50' }]}>
+              <Ionicons name="paw" size={32} color="#FFFFFF" />
             </View>
             <Text style={styles.actionText}>Breeding</Text>
             </TouchableOpacity>

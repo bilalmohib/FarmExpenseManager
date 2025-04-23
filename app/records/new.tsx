@@ -1,573 +1,803 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  StyleSheet, 
-  TouchableOpacity, 
-  Alert, 
-  ActivityIndicator, 
+import React, { useState } from 'react';
+import {
+  StyleSheet,
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
   ScrollView,
-  KeyboardAvoidingView,
+  Alert,
+  ActivityIndicator,
   Platform,
-  Image
+  Image,
+  KeyboardAvoidingView,
+  SafeAreaView
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { addAnimalRecord, updateAnimalRecord } from '../../firebase/firestore';
-import { uploadAnimalImage } from '../../firebase/storage';
-import { getMonthlyExpense } from '../../firebase/firestore';
+import { addAnimalRecord } from '../../firebase/firestore';
 import { Colors } from '../../constants/Colors';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { AnimalRecord, HealthRecord, BreedingRecord, VaccinationRecord, AnimalExpense } from '../../firebase/firestore';
 
-export default function NewRecordScreen() {
-  const [purchaseDate, setPurchaseDate] = useState(new Date());
-  const [saleDate, setSaleDate] = useState<Date | null>(null);
-  const [purchasePrice, setPurchasePrice] = useState('');
-  const [salePrice, setSalePrice] = useState('');
-  const [expenses, setExpenses] = useState('');
-  const [collectionName, setCollectionName] = useState('');
-  const [bulkQuantity, setBulkQuantity] = useState('1');
-  const [calfNames, setCalfNames] = useState('');
-  const [image, setImage] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [showPurchaseDatePicker, setShowPurchaseDatePicker] = useState(false);
-  const [showSaleDatePicker, setShowSaleDatePicker] = useState(false);
-  const [monthlyExpenseExists, setMonthlyExpenseExists] = useState(false);
-  const [calculatedValues, setCalculatedValues] = useState({
-    profit: 0,
-    loss: 0,
-  });
-  
+interface FormData {
+  animalNumber: string;
+  collectionNames: string[];
+  purchaseDate: Date;
+  purchasePrice: string;
+  category: string;
+  gender: 'male' | 'female';
+  status: 'active' | 'sold' | 'deceased';
+  description: string;
+  notes: string;
+  soldDate: Date;
+  sellingPrice: string;
+}
+
+export default function NewRecordScreen(): React.ReactElement {
   const router = useRouter();
+  const [loading, setLoading] = useState<boolean>(false);
+  const [image, setImage] = useState<string | null>(null);
+  const [showPurchaseDatePicker, setShowPurchaseDatePicker] = useState<boolean>(false);
+  const [showSoldDatePicker, setShowSoldDatePicker] = useState<boolean>(false);
+  const [newCollection, setNewCollection] = useState<string>('');
+  
+  // Form state
+  const [formData, setFormData] = useState<FormData>({
+    animalNumber: '',
+    collectionNames: [],
+    purchaseDate: new Date(),
+    purchasePrice: '',
+    category: '',
+    gender: 'male',
+    status: 'active',
+    description: '',
+    notes: '',
+    soldDate: new Date(),
+    sellingPrice: ''
+  });
 
-  // Check if monthly expense exists for the current month
-  useEffect(() => {
-    const checkMonthlyExpense = async () => {
-      try {
-        const currentDate = new Date();
-        const monthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-        const expense = await getMonthlyExpense(monthStr);
-        setMonthlyExpenseExists(expense !== null);
-      } catch (error) {
-        console.error('Error checking monthly expense:', error);
-      }
-    };
-    
-    checkMonthlyExpense();
-  }, []);
-
-  // Calculate profit or loss when inputs change
-  useEffect(() => {
-    calculateProfitLoss();
-  }, [purchasePrice, salePrice, expenses, purchaseDate, saleDate]);
-
-  const calculateProfitLoss = () => {
-    if (!purchasePrice || isNaN(Number(purchasePrice))) return;
-    
-    const purchase = Number(purchasePrice);
-    const sale = Number(salePrice) || 0;
-    const additionalExpenses = Number(expenses) || 0;
-    const totalExpense = purchase + additionalExpenses;
-    
-    if (sale > 0 && saleDate) {
-      // Calculate profit or loss
-      if (sale > totalExpense) {
-        setCalculatedValues({
-          profit: sale - totalExpense,
-          loss: 0
-        });
-      } else {
-        setCalculatedValues({
-          profit: 0,
-          loss: totalExpense - sale
-        });
-      }
-    } else {
-      setCalculatedValues({
-        profit: 0,
-        loss: 0
-      });
-    }
-  };
-
-  const pickImage = async () => {
-    try {
-      // Request permission
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'We need camera roll permissions to upload images.');
-        return;
-      }
-      
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
-      });
-      
-      if (!result.canceled) {
-        setImage(result.assets[0].uri);
-      }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to pick image');
-    }
-  };
-
-  const takePhoto = async () => {
-    try {
-      // Request permission
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'We need camera permissions to take photos.');
-        return;
-      }
-      
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
-      });
-      
-      if (!result.canceled) {
-        setImage(result.assets[0].uri);
-      }
-    } catch (error) {
-      console.error('Error taking photo:', error);
-      Alert.alert('Error', 'Failed to take photo');
-    }
-  };
-
-  const handleSubmit = async () => {
-    // Validate mandatory fields
-    if (!purchaseDate || !purchasePrice || !collectionName || !bulkQuantity) {
-      Alert.alert('Error', 'Please fill in all required fields: Purchase Date, Purchase Price, Collection Name, and Bulk Quantity');
+  const handleImagePick = async (): Promise<void> => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please grant camera roll permissions to add images');
       return;
     }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.5,
+    });
+
+    if (!result.canceled) {
+      setImage(result.assets[0].uri);
+    }
+  };
+
+  const handleAddCollection = (): void => {
+    if (!newCollection.trim()) return;
     
-    if (!monthlyExpenseExists) {
-      Alert.alert(
-        'Monthly Expense Missing',
-        'Please enter monthly expense for the current month before adding records. This is required for accurate profit/loss calculations.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Go to Expenses', onPress: () => router.push('/expenses/new') }
-        ]
-      );
+    setFormData(prev => ({
+      ...prev,
+      collectionNames: [...prev.collectionNames, newCollection.trim()]
+    }));
+    setNewCollection('');
+  };
+
+  const handleRemoveCollection = (collection: string): void => {
+    setFormData(prev => ({
+      ...prev,
+      collectionNames: prev.collectionNames.filter(c => c !== collection)
+    }));
+  };
+
+  const handleSubmit = async (): Promise<void> => {
+    if (!formData.animalNumber.trim()) {
+      Alert.alert('Error', 'Please enter an animal number');
+      return;
+    }
+
+    if (formData.collectionNames.length === 0) {
+      Alert.alert('Error', 'Please add at least one collection');
+      return;
+    }
+
+    if (formData.status === 'sold' && !formData.sellingPrice) {
+      Alert.alert('Error', 'Please enter selling price for sold animals');
       return;
     }
 
     try {
       setLoading(true);
+      const profit = formData.status === 'sold' 
+        ? parseFloat(formData.sellingPrice) - parseFloat(formData.purchasePrice)
+        : 0;
+      const loss = formData.status === 'sold' && profit < 0 ? Math.abs(profit) : 0;
+
+      await addAnimalRecord({
+        ...formData,
+        animalNumber: formData.animalNumber.trim(),
+        purchasePrice: parseFloat(formData.purchasePrice) || 0,
+        sellingPrice: formData.status === 'sold' ? parseFloat(formData.sellingPrice) : 0,
+        soldDate: formData.status === 'sold' ? formData.soldDate.toISOString() : undefined,
+        profit: formData.status === 'sold' ? Math.max(0, profit) : 0,
+        loss: formData.status === 'sold' ? loss : 0,
+        gender: formData.gender,
+        status: formData.status,
+        purchaseDate: formData.purchaseDate.toISOString(),
+        healthRecords: {} as Record<string, HealthRecord>,
+        breedingRecords: {} as Record<string, BreedingRecord>,
+        vaccinationRecords: {} as Record<string, VaccinationRecord>,
+        expenses: {} as Record<string, AnimalExpense>
+      });
       
-      // Prepare record data
-      const recordData = {
-        purchaseDate: purchaseDate.toISOString(),
-        saleDate: saleDate ? saleDate.toISOString() : null,
-        purchasePrice: Number(purchasePrice),
-        salePrice: salePrice ? Number(salePrice) : null,
-        expenses: Number(expenses) || 0,
-        profit: calculatedValues.profit,
-        loss: calculatedValues.loss,
-        collectionName,
-        bulkQuantity: Number(bulkQuantity),
-        calfNames: calfNames.split(',').map(name => name.trim()).filter(name => name)
-      };
-      
-      // Add record to Firestore
-      const newRecord = await addAnimalRecord(recordData);
-      
-      // Upload image if selected
-      if (image && newRecord.id) {
-        const imageUrl = await uploadAnimalImage(image, newRecord.id);
-        
-        // Update record with image URL
-        await updateAnimalRecord(newRecord.id, { imageURL: imageUrl });
-      }
-      
-      Alert.alert('Success', 'Record added successfully!', [
+      Alert.alert('Success', 'Animal record added successfully', [
         { text: 'OK', onPress: () => router.back() }
       ]);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error adding record:', error);
-      Alert.alert('Error', error.message || 'Failed to add record');
+      Alert.alert('Error', 'Failed to add animal record');
     } finally {
       setLoading(false);
     }
   };
 
-  // Simple date formatter
-  const formatDate = (date: Date) => {
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-  };
-
-  // Handle date selection without DateTimePicker
-  const handlePurchaseDateChange = () => {
-    // In a real implementation, this would open a date picker
-    // For now, we'll just use the current date
-    console.log('[MOCK] Opening date picker for purchase date');
-    setPurchaseDate(new Date());
-  };
-
-  const handleSaleDateChange = () => {
-    // In a real implementation, this would open a date picker
-    // For now, we'll just use the current date
-    console.log('[MOCK] Opening date picker for sale date');
-    setSaleDate(new Date());
-  };
+  const renderFieldLabel = (label: string, required: boolean = false): React.ReactElement => (
+    <View style={styles.labelContainer}>
+      <Text style={styles.label}>{label}</Text>
+      {required && <Text style={styles.requiredIndicator}>*</Text>}
+    </View>
+  );
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={{ flex: 1 }}
-    >
-      <ScrollView style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Add New Animal Record</Text>
-        </View>
-        
-        {/* Image Picker */}
-        <View style={styles.imageContainer}>
-          {image ? (
-            <Image source={{ uri: image }} style={styles.previewImage} />
-          ) : (
-            <View style={styles.imagePlaceholder}>
-              <Ionicons name="image-outline" size={50} color="#CCC" />
-              <Text style={styles.imagePlaceholderText}>Add Photo</Text>
-            </View>
-          )}
-          
-          <View style={styles.imageButtonsContainer}>
-            <TouchableOpacity style={styles.imageButton} onPress={takePhoto}>
-              <Ionicons name="camera-outline" size={24} color={Colors.light.tint} />
-              <Text style={styles.imageButtonText}>Take Photo</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.imageButton} onPress={pickImage}>
-              <Ionicons name="images-outline" size={24} color={Colors.light.tint} />
-              <Text style={styles.imageButtonText}>Gallery</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-        
-        {/* Form Fields */}
-        <View style={styles.form}>
-          {/* Purchase Date */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Purchase Date *</Text>
-            <TouchableOpacity
-              style={styles.dateInput}
-              onPress={handlePurchaseDateChange}
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.container}
+      >
+        <ScrollView style={styles.scrollView}>
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Add New Animal</Text>
+            <TouchableOpacity 
+              style={styles.backButton} 
+              onPress={() => router.back()}
             >
-              <Text style={styles.dateText}>
-                {formatDate(purchaseDate)}
-              </Text>
-              <Ionicons name="calendar-outline" size={24} color="#777" />
+              <Ionicons name="close" size={24} color="#666" />
             </TouchableOpacity>
           </View>
-          
-          {/* Purchase Price */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Purchase Price *</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="cash-outline" size={24} color="#777" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Amount"
-                value={purchasePrice}
-                onChangeText={setPurchasePrice}
-                keyboardType="numeric"
-              />
-            </View>
-          </View>
-          
-          {/* Sale Date */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Sale Date (if sold)</Text>
-            <TouchableOpacity
-              style={styles.dateInput}
-              onPress={handleSaleDateChange}
-            >
-              <Text style={styles.dateText}>
-                {saleDate ? formatDate(saleDate) : 'Select Date'}
-              </Text>
-              <Ionicons name="calendar-outline" size={24} color="#777" />
-            </TouchableOpacity>
-          </View>
-          
-          {/* Sale Price */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Sale Price (if sold)</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="cash-outline" size={24} color="#777" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Amount"
-                value={salePrice}
-                onChangeText={setSalePrice}
-                keyboardType="numeric"
-              />
-            </View>
-          </View>
-          
-          {/* Additional Expenses */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Additional Expenses</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="wallet-outline" size={24} color="#777" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Amount"
-                value={expenses}
-                onChangeText={setExpenses}
-                keyboardType="numeric"
-              />
-            </View>
-          </View>
-          
-          {/* Collection Name */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Collection Name *</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="bookmark-outline" size={24} color="#777" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Group/Collection"
-                value={collectionName}
-                onChangeText={setCollectionName}
-              />
-            </View>
-          </View>
-          
-          {/* Bulk Quantity */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Bulk Quantity *</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="calculator-outline" size={24} color="#777" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Number of animals"
-                value={bulkQuantity}
-                onChangeText={setBulkQuantity}
-                keyboardType="numeric"
-              />
-            </View>
-          </View>
-          
-          {/* Calf Names */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Calf Names (comma separated)</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="list-outline" size={24} color="#777" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Calf1, Calf2, Calf3..."
-                value={calfNames}
-                onChangeText={setCalfNames}
-                multiline
-              />
-            </View>
-          </View>
-          
-          {/* Calculated Profit/Loss */}
-          {(calculatedValues.profit > 0 || calculatedValues.loss > 0) && (
-            <View style={styles.resultContainer}>
-              <Text style={styles.resultLabel}>
-                {calculatedValues.profit > 0 ? 'Estimated Profit:' : 'Estimated Loss:'}
-              </Text>
-              <Text 
-                style={[
-                  styles.resultValue, 
-                  calculatedValues.profit > 0 ? styles.profitText : styles.lossText
-                ]}
+
+          <View style={styles.formContainer}>
+            <View style={styles.imageContainer}>
+              {image ? (
+                <Image source={{ uri: image }} style={styles.image} />
+              ) : (
+                <View style={styles.imagePlaceholder}>
+                  <Ionicons name="image-outline" size={48} color="#CCCCCC" />
+                  <Text style={styles.imagePlaceholderText}>Add Photo</Text>
+                </View>
+              )}
+              <TouchableOpacity
+                style={styles.imageButton}
+                onPress={handleImagePick}
               >
-                {calculatedValues.profit > 0
-                  ? `₹${calculatedValues.profit.toFixed(2)}`
-                  : `₹${calculatedValues.loss.toFixed(2)}`
-                }
-              </Text>
+                <Ionicons name="camera" size={16} color="#FFFFFF" style={styles.buttonIcon} />
+                <Text style={styles.imageButtonText}>
+                  {image ? 'Change Image' : 'Select Image'}
+                </Text>
+              </TouchableOpacity>
             </View>
-          )}
-          
-          {/* Warning about monthly expense */}
-          {!monthlyExpenseExists && (
-            <View style={styles.warningContainer}>
-              <Ionicons name="warning-outline" size={24} color="#FF9800" />
-              <Text style={styles.warningText}>
-                Please add the monthly expense for accurate profit/loss calculation.
-              </Text>
+
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Basic Information</Text>
+              
+              <View style={styles.inputGroup}>
+                {renderFieldLabel('Animal Number', true)}
+                <View style={styles.inputWithIcon}>
+                  <Ionicons name="paw" size={20} color="#777" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    value={formData.animalNumber}
+                    onChangeText={(text: string) => setFormData(prev => ({ ...prev, animalNumber: text }))}
+                    placeholder="Enter animal number"
+                    placeholderTextColor="#999"
+                  />
+                </View>
+              </View>
+
+              {/* <View style={styles.inputGroup}>
+                {renderFieldLabel('Collections', true)}
+                <View style={styles.collectionsContainer}>
+                  {formData.collectionNames.map((collection, index) => (
+                    <View key={index} style={styles.collectionTag}>
+                      <Text style={styles.collectionText}>{collection}</Text>
+                      <TouchableOpacity
+                        onPress={() => handleRemoveCollection(collection)}
+                        style={styles.removeCollectionButton}
+                      >
+                        <Ionicons name="close" size={14} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.addCollectionContainer}>
+                  <View style={styles.inputWithIcon}>
+                    <Ionicons name="folder" size={20} color="#777" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.collectionInput}
+                      value={newCollection}
+                      onChangeText={setNewCollection}
+                      placeholder="Add new collection"
+                      placeholderTextColor="#999"
+                    />
+                  </View>
+                  <TouchableOpacity
+                    style={styles.addCollectionButton}
+                    onPress={handleAddCollection}
+                  >
+                    <Ionicons name="add" size={22} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              </View> */}
+<View style={styles.addCollectionContainer}>
+  <View style={styles.inputWithIcon}>
+    <Ionicons name="folder" size={20} color="#777" style={styles.inputIcon} />
+    <TextInput
+      style={styles.collectionInput}
+      value={newCollection}
+      onChangeText={setNewCollection}
+      placeholder="Add new collection"
+      placeholderTextColor="#999"
+    />
+  </View>
+  <TouchableOpacity
+    style={styles.addCollectionButton}
+    onPress={handleAddCollection}
+  >
+    <Ionicons name="add" size={22} color="#FFFFFF" />
+  </TouchableOpacity>
+</View>
+              <View style={styles.inputGroup}>
+                {renderFieldLabel('Category')}
+                <View style={styles.inputWithIcon}>
+                  <Ionicons name="list" size={20} color="#777" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    value={formData.category}
+                    onChangeText={(text: string) => setFormData(prev => ({ ...prev, category: text }))}
+                    placeholder="Enter category"
+                    placeholderTextColor="#999"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                {renderFieldLabel('Gender')}
+                <View style={styles.segmentedControl}>
+                  <TouchableOpacity
+                    style={[
+                      styles.segmentButton,
+                      formData.gender === 'male' && styles.segmentButtonActive,
+                      { borderTopLeftRadius: 8, borderBottomLeftRadius: 8 }
+                    ]}
+                    onPress={() => setFormData(prev => ({ ...prev, gender: 'male' }))}
+                  >
+                    <Ionicons 
+                      name="male" 
+                      size={18} 
+                      color={formData.gender === 'male' ? '#FFFFFF' : '#666'} 
+                      style={styles.segmentIcon}
+                    />
+                    <Text style={[
+                      styles.segmentButtonText,
+                      formData.gender === 'male' && styles.segmentButtonTextActive
+                    ]}>Male</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.segmentButton,
+                      formData.gender === 'female' && styles.segmentButtonActive,
+                      { borderTopRightRadius: 8, borderBottomRightRadius: 8 }
+                    ]}
+                    onPress={() => setFormData(prev => ({ ...prev, gender: 'female' }))}
+                  >
+                    <Ionicons 
+                      name="female" 
+                      size={18} 
+                      color={formData.gender === 'female' ? '#FFFFFF' : '#666'} 
+                      style={styles.segmentIcon}
+                    />
+                    <Text style={[
+                      styles.segmentButtonText,
+                      formData.gender === 'female' && styles.segmentButtonTextActive
+                    ]}>Female</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
-          )}
-          
-          {/* Submit Button */}
-          <TouchableOpacity
-            style={styles.submitButton}
-            onPress={handleSubmit}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.submitButtonText}>Save Record</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Purchase Details</Text>
+              
+              <View style={styles.inputGroup}>
+                {renderFieldLabel('Purchase Date')}
+                <TouchableOpacity
+                  style={styles.dateButton}
+                  onPress={() => setShowPurchaseDatePicker(true)}
+                >
+                  <Ionicons name="calendar" size={20} color="#777" style={styles.dateButtonIcon} />
+                  <Text style={styles.dateButtonText}>
+                    {formData.purchaseDate.toLocaleDateString()}
+                  </Text>
+                </TouchableOpacity>
+                {showPurchaseDatePicker && (
+                  <DateTimePicker
+                    value={formData.purchaseDate}
+                    mode="date"
+                    display="default"
+                    onChange={(event, date?: Date) => {
+                      setShowPurchaseDatePicker(false);
+                      if (date) {
+                        setFormData(prev => ({ ...prev, purchaseDate: date }));
+                      }
+                    }}
+                  />
+                )}
+              </View>
+
+              <View style={styles.inputGroup}>
+                {renderFieldLabel('Purchase Price')}
+                <View style={styles.inputWithIcon}>
+                  <Ionicons name="cash" size={20} color="#777" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    value={formData.purchasePrice}
+                    onChangeText={(text: string) => setFormData(prev => ({ ...prev, purchasePrice: text }))}
+                    placeholder="Enter purchase price"
+                    placeholderTextColor="#999"
+                    keyboardType="numeric"
+                  />
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Status</Text>
+              
+              <View style={styles.inputGroup}>
+                <View style={styles.statusContainer}>
+                  {[
+                    { value: 'active' as const, icon: 'checkmark-circle', label: 'Active' },
+                    { value: 'sold' as const, icon: 'cash', label: 'Sold' },
+                    { value: 'deceased' as const, icon: 'alert-circle', label: 'Deceased' }
+                  ].map(({ value, icon, label }) => (
+                    <TouchableOpacity
+                      key={value}
+                      style={[
+                        styles.statusButton,
+                        formData.status === value && styles.statusButtonActive
+                      ]}
+                      onPress={() => setFormData(prev => ({ ...prev, status: value }))}
+                    >
+                      <Ionicons 
+                        name={icon as "checkmark-circle" | "cash" | "alert-circle"}
+                        size={18} 
+                        color={formData.status === value ? '#FFFFFF' : '#666'} 
+                        style={styles.statusIcon}
+                      />
+                      <Text style={[
+                        styles.statusButtonText,
+                        formData.status === value && styles.statusButtonTextActive
+                      ]}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {formData.status === 'sold' && (
+                <>
+                  <View style={styles.inputGroup}>
+                    {renderFieldLabel('Sold Date')}
+                    <TouchableOpacity
+                      style={styles.dateButton}
+                      onPress={() => setShowSoldDatePicker(true)}
+                    >
+                      <Ionicons name="calendar" size={20} color="#777" style={styles.dateButtonIcon} />
+                      <Text style={styles.dateButtonText}>
+                        {formData.soldDate.toLocaleDateString()}
+                      </Text>
+                    </TouchableOpacity>
+                    {showSoldDatePicker && (
+                      <DateTimePicker
+                        value={formData.soldDate}
+                        mode="date"
+                        display="default"
+                        onChange={(event, date?: Date) => {
+                          setShowSoldDatePicker(false);
+                          if (date) {
+                            setFormData(prev => ({ ...prev, soldDate: date }));
+                          }
+                        }}
+                      />
+                    )}
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    {renderFieldLabel('Sold Price', true)}
+                    <View style={styles.inputWithIcon}>
+                      <Ionicons name="cash" size={20} color="#777" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.input}
+                        value={formData.sellingPrice}
+                        onChangeText={(text: string) => setFormData(prev => ({ ...prev, sellingPrice: text }))}
+                        placeholder="Enter selling price"
+                        placeholderTextColor="#999"
+                        keyboardType="numeric"
+                      />
+                    </View>
+                  </View>
+                </>
+              )}
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Additional Information</Text>
+              
+              <View style={styles.inputGroup}>
+                {renderFieldLabel('Description')}
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={formData.description}
+                  onChangeText={(text: string) => setFormData(prev => ({ ...prev, description: text }))}
+                  placeholder="Enter description"
+                  placeholderTextColor="#999"
+                  multiline
+                  numberOfLines={3}
+                  textAlignVertical="top"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                {renderFieldLabel('Notes')}
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={formData.notes}
+                  onChangeText={(text: string) => setFormData(prev => ({ ...prev, notes: text }))}
+                  placeholder="Enter additional notes"
+                  placeholderTextColor="#999"
+                  multiline
+                  numberOfLines={3}
+                  textAlignVertical="top"
+                />
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+              onPress={handleSubmit}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <>
+                  <Ionicons name="add-circle" size={20} color="#FFFFFF" style={styles.submitButtonIcon} />
+                  <Text style={styles.submitButtonText}>Add Animal</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#F8F9FA',
+  },
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    padding: 20,
+  },
+  scrollView: {
+    flex: 1,
   },
   header: {
-    marginVertical: 20,
+    flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
+    position: 'relative',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: Colors.light.tint,
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333333',
+  },
+  backButton: {
+    position: 'absolute',
+    right: 16,
+    padding: 4,
+  },
+  formContainer: {
+    padding: 16,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333333',
+    marginBottom: 16,
   },
   imageContainer: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginVertical: 16,
   },
-  previewImage: {
-    width: 200,
-    height: 150,
-    borderRadius: 10,
-    marginBottom: 10,
+  image: {
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    marginBottom: 16,
   },
   imagePlaceholder: {
-    width: 200,
-    height: 150,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#DDD',
-    borderStyle: 'dashed',
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: '#F2F2F2',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#EEEEEE',
+    borderStyle: 'dashed',
   },
   imagePlaceholderText: {
-    color: '#999',
-    marginTop: 10,
-  },
-  imageButtonsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: 200,
+    color: '#AAAAAA',
+    marginTop: 8,
+    fontSize: 14,
   },
   imageButton: {
+    backgroundColor: Colors.light.tint,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 25,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 8,
-    borderRadius: 5,
-    backgroundColor: '#F0F0F0',
+    justifyContent: 'center',
+  },
+  buttonIcon: {
+    marginRight: 8,
   },
   imageButtonText: {
-    color: Colors.light.tint,
-    marginLeft: 5,
-  },
-  form: {
-    marginBottom: 30,
-  },
-  fieldContainer: {
-    marginBottom: 15,
-  },
-  label: {
-    fontSize: 16,
-    marginBottom: 5,
+    color: '#FFFFFF',
     fontWeight: '500',
   },
-  inputContainer: {
+  inputGroup: {
+    marginBottom: 20,
+  },
+  labelContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#DDD',
-    borderRadius: 10,
-    paddingHorizontal: 15,
-    height: 55,
+    marginBottom: 6,
   },
-  inputIcon: {
-    marginRight: 10,
+  label: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#555555',
   },
+  requiredIndicator: {
+    color: '#FF6B6B',
+    marginLeft: 4,
+    fontWeight: '500',
+  },
+  // inputWithIcon: {
+  //   flexDirection: 'row',
+  //   alignItems: 'center',
+  //   backgroundColor: '#FFFFFF',
+  //   borderWidth: 1,
+  //   borderColor: '#E0E0E0',
+  //   borderRadius: 8,
+  //   overflow: 'hidden',
+  // },
+  // inputIcon: {
+  //   paddingHorizontal: 12,
+  // },
   input: {
     flex: 1,
-    height: 55,
-    fontSize: 16,
+    padding: 12,
+    fontSize: 15,
+    color: '#333333',
   },
-  dateInput: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  textArea: {
+    minHeight: 100,
     borderWidth: 1,
-    borderColor: '#DDD',
-    borderRadius: 10,
-    paddingHorizontal: 15,
-    height: 55,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    padding: 12,
   },
-  dateText: {
-    fontSize: 16,
-  },
-  resultContainer: {
+  collectionsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#F5F5F5',
-    padding: 15,
-    borderRadius: 10,
-    marginTop: 20,
-    marginBottom: 20,
+    flexWrap: 'wrap',
+    marginBottom: 10,
   },
-  resultLabel: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  resultValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  profitText: {
-    color: '#4CAF50',
-  },
-  lossText: {
-    color: '#F44336',
-  },
-  warningContainer: {
+  collectionTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF9C4',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 20,
-  },
-  warningText: {
-    flex: 1,
-    marginLeft: 10,
-    color: '#FF9800',
-  },
-  submitButton: {
     backgroundColor: Colors.light.tint,
-    height: 55,
-    borderRadius: 10,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  collectionText: {
+    color: '#FFFFFF',
+    marginRight: 6,
+    fontSize: 13,
+  },
+  removeCollectionButton: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  addCollectionContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  inputWithIcon: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#DDDDDD',
+    paddingVertical: 0,
+    paddingHorizontal: 8,
+    marginRight: 8,
+    height: 44,
+  },
+  inputIcon: {
+    marginRight: 8,
+  },
+  collectionInput: {
+    flex: 1,
+    height: '100%',
+    fontSize: 14,
+    color: '#333333',
+    padding: 0,
+  },
+  addCollectionButton: {
+    backgroundColor: Colors.light.tint,
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    padding: 12,
+  },
+  dateButtonIcon: {
+    marginRight: 10,
+  },
+  dateButtonText: {
+    fontSize: 15,
+    color: '#333333',
+  },
+  segmentedControl: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  segmentButton: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  segmentButtonActive: {
+    backgroundColor: Colors.light.tint,
+  },
+  segmentIcon: {
+    marginRight: 6,
+  },
+  segmentButtonText: {
+    fontSize: 14,
+    color: '#666666',
+    fontWeight: '500',
+  },
+  segmentButtonTextActive: {
+    color: '#FFFFFF',
+  },
+  statusContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  statusButton: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    padding: 12,
+    marginHorizontal: 4,
+  },
+  statusButtonActive: {
+    backgroundColor: Colors.light.tint,
+    borderColor: Colors.light.tint,
+  },
+  statusIcon: {
+    marginRight: 6,
+  },
+  statusButtonText: {
+    fontSize: 13,
+    color: '#666666',
+    fontWeight: '500',
+  },
+  statusButtonTextActive: {
+    color: '#FFFFFF',
+  },
+  submitButton: {
+    flexDirection: 'row',
+    backgroundColor: Colors.light.tint,
+    paddingVertical: 16,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    marginBottom: 30,
+    shadowColor: Colors.light.tint,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  submitButtonDisabled: {
+    opacity: 0.7,
+  },
+  submitButtonIcon: {
+    marginRight: 8,
   },
   submitButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
   },
-}); 
+});
