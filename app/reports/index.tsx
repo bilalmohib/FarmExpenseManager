@@ -91,7 +91,7 @@ export default function ReportsScreen() {
     }
   };
 
-  const calculateStats = () => {
+  const calculateStats = async () => {
     const newStats: ReportStats = {
       totalExpense: 0,
       totalSale: 0,
@@ -101,63 +101,84 @@ export default function ReportsScreen() {
       animals: {}
     };
 
-    records.forEach(record => {
-      // Calculate total expenses for the animal
-      const animalExpenses = Object.values(record.expenses || {}).reduce((sum, expense) => sum + expense.amount, 0);
-      const totalExpense = record.purchasePrice + animalExpenses;
-      const salePrice = record.sellingPrice || 0; // Use sellingPrice from database
-      let profit = 0;
-      let loss = 0;
+    try {
+      // Get all monthly expenses
+      const monthlyExpenses = await getMonthlyExpenses();
 
-      // Calculate profit/loss for the animal only if it's sold
-      if (record.status === 'sold') {
-        profit = salePrice > totalExpense ? salePrice - totalExpense : 0;
-        loss = salePrice < totalExpense ? totalExpense - salePrice : 0;
-      }
+      records.forEach(record => {
+        // Calculate total expenses for the animal
+        const animalExpenses = Object.values(record.expenses || {}).reduce((sum: number, expense) => sum + (expense as {amount: number}).amount, 0);
+        const totalExpense = record.purchasePrice + animalExpenses;
+        const salePrice = record.sellingPrice || 0;
 
-      // Update animal stats
-      newStats.animals[record.id] = {
-        totalExpense,
-        salePrice,
-        profit,
-        loss,
-        status: record.status || 'unsold'
-      };
+        // Calculate profit/loss for the animal only if it's sold
+        let profit = 0;
+        let loss = 0;
 
-      // Update collection stats
-      record.collectionNames.forEach(collectionName => {
-        if (!newStats.collections[collectionName]) {
-          newStats.collections[collectionName] = {
-            totalExpense: 0,
-            totalSale: 0,
-            profit: 0,
-            loss: 0,
-            animalCount: 0,
-            animals: []
-          };
+        if (record.status === 'sold') {
+          // Find matching expenses based on collection tags
+          const matchingExpenses = monthlyExpenses.filter(expense => {
+            return expense.tags && record.collectionNames.some(collectionName => 
+              expense.tags.includes(collectionName)
+            );
+          });
+
+          // Add matching expenses to total expense
+          const matchingExpensesTotal = matchingExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+          const totalExpenseWithMatching = totalExpense + matchingExpensesTotal;
+
+          // Calculate profit/loss
+          profit = salePrice > totalExpenseWithMatching ? salePrice - totalExpenseWithMatching : 0;
+          loss = salePrice < totalExpenseWithMatching ? totalExpenseWithMatching - salePrice : 0;
         }
 
-        const collection = newStats.collections[collectionName];
-        collection.totalExpense += totalExpense;
-        collection.totalSale += salePrice;
-        collection.profit += profit;
-        collection.loss += loss;
-        collection.animalCount += 1;
-        collection.animals.push({
-          animalNumber: record.animalNumber,
+        // Update animal stats
+        newStats.animals[record.id] = {
+          totalExpense,
+          salePrice,
           profit,
-          loss
+          loss,
+          status: record.status || 'unsold'
+        };
+
+        // Update collection stats
+        record.collectionNames.forEach(collectionName => {
+          if (!newStats.collections[collectionName]) {
+            newStats.collections[collectionName] = {
+              totalExpense: 0,
+              totalSale: 0,
+              profit: 0,
+              loss: 0,
+              animalCount: 0,
+              animals: []
+            };
+          }
+
+          const collection = newStats.collections[collectionName];
+          collection.totalExpense += totalExpense;
+          collection.totalSale += salePrice;
+          collection.profit += profit;
+          collection.loss += loss;
+          collection.animalCount += 1;
+          collection.animals.push({
+            animalNumber: record.animalNumber,
+            profit,
+            loss
+          });
         });
+
+        // Update overall stats
+        newStats.totalExpense += totalExpense;
+        newStats.totalSale += salePrice;
+        newStats.profit += profit;
+        newStats.loss += loss;
       });
 
-      // Update overall stats
-      newStats.totalExpense += totalExpense;
-      newStats.totalSale += salePrice;
-      newStats.profit += profit;
-      newStats.loss += loss;
-    });
-
-    setStats(newStats);
+      setStats(newStats);
+    } catch (error) {
+      console.error('Error calculating stats:', error);
+      Alert.alert('Error', 'Failed to calculate statistics');
+    }
   };
 
   const formatCurrency = (amount: number) => {
@@ -440,7 +461,7 @@ export default function ReportsScreen() {
 
         <View style={styles.animalsStats}>
           <View style={styles.sectionHeader}>
-            <Ionicons name="ios-paw" size={20} color={Colors.light.tint} />
+            <Ionicons name="paw" size={20} color={Colors.light.tint} />
             <Text style={styles.sectionTitle}>Animal Statistics</Text>
           </View>
           

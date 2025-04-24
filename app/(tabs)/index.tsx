@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, ScrollView, View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { StyleSheet, ScrollView, View, Text, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../../constants/Colors';
+import  {Colors } from '../../constants/Colors';
 import { getAllAnimalRecords, getMonthlyExpense } from '../../firebase/firestore';
 import { useUser } from '@clerk/clerk-expo';
 import SignOutButton from '../components/SignOutButton';
@@ -90,6 +90,14 @@ export default function HomeScreen() {
 
   return (
     <ScrollView style={styles.container}>
+      <View style={styles.header}>
+        <Image 
+          source={require('../../assets/images/icon.png')} 
+          style={styles.logo}
+          resizeMode="contain"
+        />
+        <Text style={styles.title}>Farm Expense Manager</Text>
+      </View>
       {/* Welcome Section */}
       <View style={styles.welcomeSection}>
         <View style={styles.welcomeHeader}>
@@ -171,7 +179,7 @@ export default function HomeScreen() {
           {/* Add Record Button */}
           <TouchableOpacity 
             style={styles.actionButton}
-            onPress={() => router.push('/records')}
+            onPress={() => router.push('/records/new')}
           >
             <View style={styles.actionIconContainer}>
               <Ionicons name="add-circle" size={32} color="#FFFFFF" />
@@ -212,17 +220,6 @@ export default function HomeScreen() {
             <Text style={styles.actionText}>Reports</Text>
           </TouchableOpacity>
           
-                    {/* 🧬 Breeding */}
-                    <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => router.push('/breeding')}
-          >
-            <View style={[styles.actionIconContainer, { backgroundColor: '#4CAF50' }]}>
-              <Ionicons name="paw" size={32} color="#FFFFFF" />
-            </View>
-            <Text style={styles.actionText}>Breeding</Text>
-            </TouchableOpacity>
-
         </View>
       </View>
 
@@ -251,7 +248,25 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    backgroundColor: Colors.light.background,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: Colors.light.background,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.light.border,
+  },
+  logo: {
+    width: 40,
+    height: 40,
+    marginRight: 12,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.light.primary,
   },
   loadingContainer: {
     flex: 1,
@@ -305,7 +320,7 @@ const styles = StyleSheet.create({
     padding: 15,
     width: '31%',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 5, height: 5 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,

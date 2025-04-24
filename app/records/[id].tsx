@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -13,10 +13,10 @@ import {
   KeyboardAvoidingView,
   SafeAreaView
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { addAnimalRecord } from '../../firebase/firestore';
+import { getAnimalRecordById, updateAnimalRecord } from '../../firebase/firestore';
 import { Colors } from '../../constants/Colors';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { AnimalRecord, HealthRecord, BreedingRecord, VaccinationRecord, AnimalExpense } from '../../firebase/firestore';
@@ -35,8 +35,9 @@ interface FormData {
   sellingPrice: string;
 }
 
-export default function NewRecordScreen(): React.ReactElement {
+export default function EditRecordScreen(): React.ReactElement {
   const router = useRouter();
+  const { id } = useLocalSearchParams();
   const [loading, setLoading] = useState<boolean>(false);
   const [image, setImage] = useState<string | null>(null);
   const [showPurchaseDatePicker, setShowPurchaseDatePicker] = useState<boolean>(false);
@@ -57,6 +58,38 @@ export default function NewRecordScreen(): React.ReactElement {
     soldDate: new Date(),
     sellingPrice: ''
   });
+
+  useEffect(() => {
+    loadRecord();
+  }, [id]);
+
+  const loadRecord = async () => {
+    try {
+      setLoading(true);
+      const record = await getAnimalRecordById(id as string);
+      if (record) {
+        setFormData({
+          animalNumber: record.animalNumber || '',
+          collectionNames: record.collectionNames || [],
+          purchaseDate: new Date(record.purchaseDate),
+          purchasePrice: record.purchasePrice?.toString() || '',
+          category: record.category || '',
+          gender: record.gender || 'male',
+          status: record.status || 'active',
+          description: record.description || '',
+          notes: record.notes || '',
+          soldDate: record.soldDate ? new Date(record.soldDate) : new Date(),
+          sellingPrice: record.sellingPrice?.toString() || ''
+        });
+        setImage(record.imageUrl || null);
+      }
+    } catch (error) {
+      console.error('Error loading record:', error);
+      Alert.alert('Error', 'Failed to load animal record');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleImagePick = async (): Promise<void> => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -117,7 +150,7 @@ export default function NewRecordScreen(): React.ReactElement {
         : 0;
       const loss = formData.status === 'sold' && profit < 0 ? Math.abs(profit) : 0;
 
-      await addAnimalRecord({
+      await updateAnimalRecord(id as string, {
         ...formData,
         animalNumber: formData.animalNumber.trim(),
         purchasePrice: parseFloat(formData.purchasePrice) || 0,
@@ -128,17 +161,15 @@ export default function NewRecordScreen(): React.ReactElement {
         gender: formData.gender,
         status: formData.status,
         purchaseDate: formData.purchaseDate.toISOString(),
-        saleDate: formData.soldDate,
-        expenses: {},
-        userId: formData.animalNumber
+        imageUrl: image || undefined
       });
       
-      Alert.alert('Success', 'Animal record added successfully', [
+      Alert.alert('Success', 'Animal record updated successfully', [
         { text: 'OK', onPress: () => router.back() }
       ]);
     } catch (error) {
-      console.error('Error adding record:', error);
-      Alert.alert('Error', 'Failed to add animal record');
+      console.error('Error updating record:', error);
+      Alert.alert('Error', 'Failed to update animal record');
     } finally {
       setLoading(false);
     }
@@ -151,6 +182,17 @@ export default function NewRecordScreen(): React.ReactElement {
     </View>
   );
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.light.tint} />
+          <Text style={styles.loadingText}>Loading record...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView 
@@ -159,7 +201,7 @@ export default function NewRecordScreen(): React.ReactElement {
       >
         <ScrollView style={styles.scrollView}>
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>Add New Animal</Text>
+            <Text style={styles.headerTitle}>Edit Animal</Text>
             <TouchableOpacity 
               style={styles.backButton} 
               onPress={() => router.back()}
@@ -206,7 +248,22 @@ export default function NewRecordScreen(): React.ReactElement {
                 </View>
               </View>
 
-<View style={styles.addCollectionContainer}>
+              <View style={styles.inputGroup}>
+                {renderFieldLabel('Collections', true)}
+                <View style={styles.collectionsContainer}>
+                  {formData.collectionNames.map((collection, index) => (
+                    <View key={index} style={styles.collectionTag}>
+                      <Text style={styles.collectionText}>{collection}</Text>
+                      <TouchableOpacity
+                        onPress={() => handleRemoveCollection(collection)}
+                        style={styles.removeCollectionButton}
+                      >
+                        <Ionicons name="close" size={14} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.addCollectionContainer}>
   <View style={styles.inputWithIcon}>
     <Ionicons name="folder" size={20} color="#777" style={styles.inputIcon} />
     <TextInput
@@ -224,10 +281,12 @@ export default function NewRecordScreen(): React.ReactElement {
     <Ionicons name="add" size={22} color="#FFFFFF" />
   </TouchableOpacity>
 </View>
+              </View>
+
               <View style={styles.inputGroup}>
                 {renderFieldLabel('Category')}
                 <View style={styles.inputWithIcon}>
-                  <Ionicons name="list" size={20} color="#777" style={styles.inputIcon} />
+                  <Ionicons name="pricetag" size={20} color="#777" style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     value={formData.category}
@@ -240,60 +299,75 @@ export default function NewRecordScreen(): React.ReactElement {
 
               <View style={styles.inputGroup}>
                 {renderFieldLabel('Gender')}
-                <View style={styles.segmentedControl}>
+                <View style={styles.genderContainer}>
                   <TouchableOpacity
                     style={[
-                      styles.segmentButton,
-                      formData.gender === 'male' && styles.segmentButtonActive,
-                      { borderTopLeftRadius: 8, borderBottomLeftRadius: 8 }
+                      styles.genderButton,
+                      formData.gender === 'male' && styles.genderButtonActive
                     ]}
                     onPress={() => setFormData(prev => ({ ...prev, gender: 'male' }))}
                   >
                     <Ionicons 
                       name="male" 
-                      size={18} 
+                      size={20} 
                       color={formData.gender === 'male' ? '#FFFFFF' : '#666'} 
-                      style={styles.segmentIcon}
                     />
                     <Text style={[
-                      styles.segmentButtonText,
-                      formData.gender === 'male' && styles.segmentButtonTextActive
+                      styles.genderText,
+                      formData.gender === 'male' && styles.genderTextActive
                     ]}>Male</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[
-                      styles.segmentButton,
-                      formData.gender === 'female' && styles.segmentButtonActive,
-                      { borderTopRightRadius: 8, borderBottomRightRadius: 8 }
+                      styles.genderButton,
+                      formData.gender === 'female' && styles.genderButtonActive
                     ]}
                     onPress={() => setFormData(prev => ({ ...prev, gender: 'female' }))}
                   >
                     <Ionicons 
                       name="female" 
-                      size={18} 
+                      size={20} 
                       color={formData.gender === 'female' ? '#FFFFFF' : '#666'} 
-                      style={styles.segmentIcon}
                     />
                     <Text style={[
-                      styles.segmentButtonText,
-                      formData.gender === 'female' && styles.segmentButtonTextActive
+                      styles.genderText,
+                      formData.gender === 'female' && styles.genderTextActive
                     ]}>Female</Text>
                   </TouchableOpacity>
                 </View>
               </View>
-            </View>
 
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Purchase Details</Text>
-              
               <View style={styles.inputGroup}>
-                {renderFieldLabel('Purchase Date')}
+                {renderFieldLabel('Status')}
+                <View style={styles.statusContainer}>
+                  {['active', 'sold', 'deceased'].map((status) => (
+                    <TouchableOpacity
+                      key={status}
+                      style={[
+                        styles.statusButton,
+                        formData.status === status && styles.statusButtonActive
+                      ]}
+                      onPress={() => setFormData(prev => ({ ...prev, status: status as 'active' | 'sold' | 'deceased' }))}
+                    >
+                      <Text style={[
+                        styles.statusText,
+                        formData.status === status && styles.statusTextActive
+                      ]}>
+                        {status.charAt(0).toUpperCase() + status.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                {renderFieldLabel('Purchase Date', true)}
                 <TouchableOpacity
                   style={styles.dateButton}
                   onPress={() => setShowPurchaseDatePicker(true)}
                 >
-                  <Ionicons name="calendar" size={20} color="#777" style={styles.dateButtonIcon} />
-                  <Text style={styles.dateButtonText}>
+                  <Ionicons name="calendar" size={20} color="#777" style={styles.inputIcon} />
+                  <Text style={styles.dateText}>
                     {formData.purchaseDate.toLocaleDateString()}
                   </Text>
                 </TouchableOpacity>
@@ -302,7 +376,7 @@ export default function NewRecordScreen(): React.ReactElement {
                     value={formData.purchaseDate}
                     mode="date"
                     display="default"
-                    onChange={(event, date?: Date) => {
+                    onChange={(event, date) => {
                       setShowPurchaseDatePicker(false);
                       if (date) {
                         setFormData(prev => ({ ...prev, purchaseDate: date }));
@@ -313,7 +387,7 @@ export default function NewRecordScreen(): React.ReactElement {
               </View>
 
               <View style={styles.inputGroup}>
-                {renderFieldLabel('Purchase Price')}
+                {renderFieldLabel('Purchase Price', true)}
                 <View style={styles.inputWithIcon}>
                   <Ionicons name="cash" size={20} color="#777" style={styles.inputIcon} />
                   <TextInput
@@ -326,53 +400,17 @@ export default function NewRecordScreen(): React.ReactElement {
                   />
                 </View>
               </View>
-            </View>
-
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Status</Text>
-              
-              <View style={styles.inputGroup}>
-                <View style={styles.statusContainer}>
-                  {[
-                    { value: 'active' as const, icon: 'checkmark-circle', label: 'Active' },
-                    { value: 'sold' as const, icon: 'cash', label: 'Sold' },
-                    { value: 'deceased' as const, icon: 'alert-circle', label: 'Deceased' }
-                  ].map(({ value, icon, label }) => (
-                    <TouchableOpacity
-                      key={value}
-                      style={[
-                        styles.statusButton,
-                        formData.status === value && styles.statusButtonActive
-                      ]}
-                      onPress={() => setFormData(prev => ({ ...prev, status: value }))}
-                    >
-                      <Ionicons 
-                        name={icon as "checkmark-circle" | "cash" | "alert-circle"}
-                        size={18} 
-                        color={formData.status === value ? '#FFFFFF' : '#666'} 
-                        style={styles.statusIcon}
-                      />
-                      <Text style={[
-                        styles.statusButtonText,
-                        formData.status === value && styles.statusButtonTextActive
-                      ]}>
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
 
               {formData.status === 'sold' && (
                 <>
                   <View style={styles.inputGroup}>
-                    {renderFieldLabel('Sold Date')}
+                    {renderFieldLabel('Sold Date', true)}
                     <TouchableOpacity
                       style={styles.dateButton}
                       onPress={() => setShowSoldDatePicker(true)}
                     >
-                      <Ionicons name="calendar" size={20} color="#777" style={styles.dateButtonIcon} />
-                      <Text style={styles.dateButtonText}>
+                      <Ionicons name="calendar" size={20} color="#777" style={styles.inputIcon} />
+                      <Text style={styles.dateText}>
                         {formData.soldDate.toLocaleDateString()}
                       </Text>
                     </TouchableOpacity>
@@ -381,7 +419,7 @@ export default function NewRecordScreen(): React.ReactElement {
                         value={formData.soldDate}
                         mode="date"
                         display="default"
-                        onChange={(event, date?: Date) => {
+                        onChange={(event, date) => {
                           setShowSoldDatePicker(false);
                           if (date) {
                             setFormData(prev => ({ ...prev, soldDate: date }));
@@ -392,7 +430,7 @@ export default function NewRecordScreen(): React.ReactElement {
                   </View>
 
                   <View style={styles.inputGroup}>
-                    {renderFieldLabel('Sold Price', true)}
+                    {renderFieldLabel('Selling Price', true)}
                     <View style={styles.inputWithIcon}>
                       <Ionicons name="cash" size={20} color="#777" style={styles.inputIcon} />
                       <TextInput
@@ -407,11 +445,7 @@ export default function NewRecordScreen(): React.ReactElement {
                   </View>
                 </>
               )}
-            </View>
 
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Additional Information</Text>
-              
               <View style={styles.inputGroup}>
                 {renderFieldLabel('Description')}
                 <TextInput
@@ -421,8 +455,7 @@ export default function NewRecordScreen(): React.ReactElement {
                   placeholder="Enter description"
                   placeholderTextColor="#999"
                   multiline
-                  numberOfLines={3}
-                  textAlignVertical="top"
+                  numberOfLines={4}
                 />
               </View>
 
@@ -432,17 +465,16 @@ export default function NewRecordScreen(): React.ReactElement {
                   style={[styles.input, styles.textArea]}
                   value={formData.notes}
                   onChangeText={(text: string) => setFormData(prev => ({ ...prev, notes: text }))}
-                  placeholder="Enter additional notes"
+                  placeholder="Enter notes"
                   placeholderTextColor="#999"
                   multiline
-                  numberOfLines={3}
-                  textAlignVertical="top"
+                  numberOfLines={4}
                 />
               </View>
             </View>
 
             <TouchableOpacity
-              style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+              style={styles.submitButton}
               onPress={handleSubmit}
               disabled={loading}
             >
@@ -450,8 +482,8 @@ export default function NewRecordScreen(): React.ReactElement {
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
                 <>
-                  <Ionicons name="add-circle" size={20} color="#FFFFFF" style={styles.submitButtonIcon} />
-                  <Text style={styles.submitButtonText}>Add Animal</Text>
+                  <Ionicons name="save" size={20} color="#FFFFFF" style={styles.buttonIcon} />
+                  <Text style={styles.submitButtonText}>Save Changes</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -465,7 +497,7 @@ export default function NewRecordScreen(): React.ReactElement {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#F5F5F5',
   },
   container: {
     flex: 1,
@@ -475,157 +507,132 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    padding: 16,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#EEEEEE',
-    position: 'relative',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: 'bold',
     color: '#333333',
   },
   backButton: {
-    position: 'absolute',
-    right: 16,
-    padding: 4,
+    padding: 8,
   },
   formContainer: {
     padding: 16,
+  },
+  imageContainer: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  image: {
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    marginBottom: 16,
+  },
+  imagePlaceholder: {
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: '#F0F0F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  imagePlaceholderText: {
+    marginTop: 8,
+    color: '#999999',
+  },
+  imageButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.light.tint,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  imageButtonText: {
+    color: '#FFFFFF',
+    marginLeft: 8,
+    fontWeight: '500',
   },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 16,
+    marginBottom: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   cardTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#333333',
     marginBottom: 16,
   },
-  imageContainer: {
-    alignItems: 'center',
-    marginVertical: 16,
-  },
-  image: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    marginBottom: 16,
-  },
-  imagePlaceholder: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: '#F2F2F2',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#EEEEEE',
-    borderStyle: 'dashed',
-  },
-  imagePlaceholderText: {
-    color: '#AAAAAA',
-    marginTop: 8,
-    fontSize: 14,
-  },
-  imageButton: {
-    backgroundColor: Colors.light.tint,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 25,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonIcon: {
-    marginRight: 8,
-  },
-  imageButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '500',
-  },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   labelContainer: {
     flexDirection: 'row',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   label: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#555555',
+    color: '#666666',
   },
   requiredIndicator: {
-    color: '#FF6B6B',
+    color: '#FF0000',
     marginLeft: 4,
-    fontWeight: '500',
   },
-  // inputWithIcon: {
-  //   flexDirection: 'row',
-  //   alignItems: 'center',
-  //   backgroundColor: '#FFFFFF',
-  //   borderWidth: 1,
-  //   borderColor: '#E0E0E0',
-  //   borderRadius: 8,
-  //   overflow: 'hidden',
-  // },
-  // inputIcon: {
-  //   paddingHorizontal: 12,
-  // },
+//   inputWithIcon: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     backgroundColor: '#F5F5F5',
+//     borderRadius: 8,
+//     paddingHorizontal: 12,
+//   },
+  inputIcon: {
+    marginRight: 8,
+  },
   input: {
     flex: 1,
-    padding: 12,
-    fontSize: 15,
+    height: 48,
     color: '#333333',
   },
   textArea: {
-    minHeight: 100,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    padding: 12,
+    height: 100,
+    textAlignVertical: 'top',
   },
   collectionsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   collectionTag: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.light.tint,
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
     marginRight: 8,
     marginBottom: 8,
   },
   collectionText: {
     color: '#FFFFFF',
-    marginRight: 6,
-    fontSize: 13,
+    marginRight: 4,
   },
   removeCollectionButton: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    padding: 2,
   },
   addCollectionContainer: {
     flexDirection: 'row',
@@ -645,9 +652,9 @@ const styles = StyleSheet.create({
     marginRight: 8,
     height: 44,
   },
-  inputIcon: {
-    marginRight: 8,
-  },
+//   inputIcon: {
+//     marginRight: 8,
+//   },
   collectionInput: {
     flex: 1,
     height: '100%',
@@ -663,49 +670,45 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  dateButton: {
+//   collectionInput: {
+//     flex: 1,
+//     height: 48,
+//     backgroundColor: '#F5F5F5',
+//     borderRadius: 8,
+//     paddingHorizontal: 12,
+//     color: '#333333',
+//   },
+//   addCollectionButton: {
+//     backgroundColor: Colors.light.tint,
+//     width: 48,
+//     height: 48,
+//     borderRadius: 8,
+//     justifyContent: 'center',
+//     alignItems: 'center',
+//     marginLeft: 8,
+//   },
+  genderContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    padding: 12,
+    justifyContent: 'space-between',
   },
-  dateButtonIcon: {
-    marginRight: 10,
-  },
-  dateButtonText: {
-    fontSize: 15,
-    color: '#333333',
-  },
-  segmentedControl: {
-    flexDirection: 'row',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  segmentButton: {
+  genderButton: {
     flex: 1,
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F5F5F5',
     paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    marginHorizontal: 4,
   },
-  segmentButtonActive: {
+  genderButtonActive: {
     backgroundColor: Colors.light.tint,
   },
-  segmentIcon: {
-    marginRight: 6,
-  },
-  segmentButtonText: {
-    fontSize: 14,
+  genderText: {
+    marginLeft: 8,
     color: '#666666',
-    fontWeight: '500',
   },
-  segmentButtonTextActive: {
+  genderTextActive: {
     color: '#FFFFFF',
   },
   statusContainer: {
@@ -714,55 +717,57 @@ const styles = StyleSheet.create({
   },
   statusButton: {
     flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
+    backgroundColor: '#F5F5F5',
+    paddingVertical: 12,
     borderRadius: 8,
-    padding: 12,
     marginHorizontal: 4,
   },
   statusButtonActive: {
     backgroundColor: Colors.light.tint,
-    borderColor: Colors.light.tint,
   },
-  statusIcon: {
-    marginRight: 6,
-  },
-  statusButtonText: {
-    fontSize: 13,
+  statusText: {
     color: '#666666',
-    fontWeight: '500',
   },
-  statusButtonTextActive: {
+  statusTextActive: {
     color: '#FFFFFF',
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    height: 48,
+  },
+  dateText: {
+    flex: 1,
+    color: '#333333',
   },
   submitButton: {
     flexDirection: 'row',
-    backgroundColor: Colors.light.tint,
-    paddingVertical: 16,
-    borderRadius: 30,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 10,
-    marginBottom: 30,
-    shadowColor: Colors.light.tint,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    backgroundColor: Colors.light.tint,
+    paddingVertical: 16,
+    borderRadius: 8,
+    marginBottom: 24,
   },
-  submitButtonDisabled: {
-    opacity: 0.7,
-  },
-  submitButtonIcon: {
+  buttonIcon: {
     marginRight: 8,
   },
   submitButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
-});
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    color: '#666666',
+  },
+}); 

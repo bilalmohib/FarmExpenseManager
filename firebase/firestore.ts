@@ -24,32 +24,28 @@ import { User } from './auth';
 // Types
 export interface AnimalRecord {
   saleDate: any;
+  expenses: {};
   id: string;
   animalNumber: string;
   collectionNames: string[];
-  status: 'active' | 'sold' | 'deceased';
-  category: string;
-  breed: string;
-  weight: number;
-  gender: 'male' | 'female';
-  purchasePrice: number;
-  sellingPrice?: number;
   purchaseDate: string;
-  soldDate?: string;
-  expenses: AnimalExpense[];
-  healthRecords: Record<string, HealthRecord>;
-  breedingRecords: Record<string, BreedingRecord>;
-  vaccinationRecords: Record<string, VaccinationRecord>;
-  productionRecords: Record<string, ProductionRecord>;
+  purchasePrice: number;
+  category: string;
+  gender: 'male' | 'female';
+  status: 'active' | 'sold' | 'deceased';
+  description?: string;
   notes?: string;
+  soldDate?: string;
+  sellingPrice?: number;
   imageUrl?: string;
   profit?: number;
   loss?: number;
-  lastWeight?: number;
-  lastWeightDate?: string;
-  growthRate?: number;
+  userId: string;
   createdAt: string;
   updatedAt: string;
+  lastWeight?: number;
+  lastWeightDate?: string;
+  productionRecords?: Record<string, ProductionRecord>;
 }
 
 export interface MonthlyExpense {
@@ -206,53 +202,29 @@ export const getAnimalRecords = async (): Promise<AnimalRecord[]> => {
 // Function alias for backward compatibility
 // export const getAllAnimalRecords = getAnimalRecords;
 
-// export const getAnimalRecordById = async (recordId: string): Promise<AnimalRecord | null> => {
-// console.log("starting getAnimalRecordById");
-//   console.log("recordId",recordId);
-//    const querySnapshot = await getDocs(collection(db, "animalRecords"));
-//   querySnapshot.forEach((doc) => {
-//     console.log(doc.id, " => ", doc.data());
-//   try {
-
-//     if (doc.exists()) {
-//       // No longer verify if record belongs to user
-//       return formatDocumentData<AnimalRecord>(doc.data(), doc.id);
-//     } 
+export const getAnimalRecordById = async (id: string): Promise<AnimalRecord | null> => {
+  try {
+    const docRef = doc(db, 'animalRecords', id);
+    const docSnap = await getDoc(docRef);
     
-//     return null;
-//   } catch (error: any) {
-//     console.error('Error getting record:', error);
-//     throw new Error(error.message || 'Failed to get record');
-//   }
-//   });
-//   //   const docRef = doc(db, 'animalRecords', recordId);
-//   //   const docSnap = await getDoc(docRef);
-//   //   console.log("docSnap.data()",docSnap.data());
+    if (docSnap.exists()) {
+      const userId = getCurrentUserId();
+      const data = docSnap.data();
+      
+      // Only verify user ID if it exists in the record
+      if (data.userId && data.userId !== userId) {
+        throw new Error('Unauthorized access to animal record');
+      }
+      
+      return formatDocumentData<AnimalRecord>(data, docSnap.id);
+    }
     
-// };
-// function formatDocumentData<T>(data: any, id: string): T {
-//   return { id, ...data } as T;
-// }
-
-// export const getAnimalRecordById = async (recordId: string): Promise<AnimalRecord | null> => {
-//   console.log("starting getAnimalRecordById");
-//   console.log("recordId", recordId);
-
-//   try {
-//     const docRef = doc(db, "animalRecords", recordId);
-//     const docSnap = await getDoc(docRef);
-
-//     if (docSnap.exists()) {
-//       return formatDocumentData<AnimalRecord>(docSnap.data(), docSnap.id);
-//     } else {
-//       console.log("No such document!");
-//       return null;
-//     }
-//   } catch (error: any) {
-//     console.error("Error getting record:", error);
-//     throw new Error(error.message || "Failed to get record");
-//   }
-// };
+    return null;
+  } catch (error: any) {
+    console.error('Error getting animal record by ID:', error);
+    throw new Error(error.message || 'Failed to get animal record');
+  }
+};
 
 export const getAllAnimalRecords = async (): Promise<AnimalRecord[]> => {
   const querySnapshot = await getDocs(collection(db, "animalRecords"));
