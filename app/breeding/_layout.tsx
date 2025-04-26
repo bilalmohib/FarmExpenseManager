@@ -1,27 +1,20 @@
 import { Stack } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 
-export default function ReportsLayout() {
+export default function BreedingLayout() {
   return (
     <Stack
       screenOptions={{
-        headerStyle: {
-          backgroundColor: Colors.light.tint,
-        },
-        headerTintColor: '#fff',
-        headerTitleStyle: {
-          fontWeight: 'bold',
-        },
-        animation: 'slide_from_right',
+        headerShown: false, // Hide the default header
       }}
     >
       <Stack.Screen
         name="index"
         options={{
-          title: 'Reports & Analytics',
-          headerLargeTitle: true,
+          title: 'Breeding Analysis',
         }}
       />
+      {/* Add other breeding-related screens here if needed */}
     </Stack>
   );
 } 

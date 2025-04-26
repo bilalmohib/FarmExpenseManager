@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, ScrollView, View, Text, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import  {Colors } from '../../constants/Colors';
+import { Colors } from '../../constants/Colors';
 import { getAllAnimalRecords, getMonthlyExpense } from '../../firebase/firestore';
 import { useUser } from '@clerk/clerk-expo';
 import SignOutButton from '../components/SignOutButton';
@@ -35,12 +35,12 @@ export default function HomeScreen() {
       
       // Get all animal records
       const records = await getAllAnimalRecords();
-      
+      console.log("records",records.length);
       // Get monthly expense
       const monthlyExpense = await getMonthlyExpense(currentMonthStr);
 
       // Calculate active animals (those without sale date)
-      const activeAnimals = records.filter(record => !record.saleDate).length;
+      const activeAnimals = records.length;
       
       // Calculate total profit/loss for current month
       const currentMonthRecords = records.filter(record => {
@@ -220,6 +220,39 @@ export default function HomeScreen() {
             <Text style={styles.actionText}>Reports</Text>
           </TouchableOpacity>
           
+          {/* Create Invoice Button */}
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => router.push('/invoices/new')}
+          >
+            <View style={[styles.actionIconContainer, { backgroundColor: '#009688' }]}> 
+              <Ionicons name="document-text" size={32} color="#FFFFFF" />
+            </View>
+            <Text style={styles.actionText}>Create Invoice</Text>
+          </TouchableOpacity>
+
+          {/* Breeding Button */}
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => router.push('/breeding')}
+          >
+            <View style={[styles.actionIconContainer, { backgroundColor: '#E91E63' }]}> 
+              <Ionicons name="leaf" size={32} color="#FFFFFF" />
+            </View>
+            <Text style={styles.actionText}>Breeding</Text>
+          </TouchableOpacity>
+
+          {/* Load In/Out Button */}
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => router.push('/loading/loadInOut')}
+          >
+            <View style={[styles.actionIconContainer, { backgroundColor: '#795548' }]}> 
+              <Ionicons name="swap-horizontal" size={32} color="#FFFFFF" />
+            </View>
+            <Text style={styles.actionText}>Load In/Out</Text>
+          </TouchableOpacity>
+
         </View>
       </View>
 

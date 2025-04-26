@@ -20,9 +20,16 @@ import {
 
 import { db, auth } from './config';
 import { User } from './auth';
+import { ReactNode } from 'react';
+import { LoadRecord } from '@/app/models/LoadRecord';
 
 // Types
 export interface AnimalRecord {
+  salePrice: number;
+  date: any;
+  weight: ReactNode;
+  animalType: ReactNode;
+  recordType: string;
   saleDate: any;
   expenses: {};
   id: string;
@@ -46,6 +53,18 @@ export interface AnimalRecord {
   lastWeight?: number;
   lastWeightDate?: string;
   productionRecords?: Record<string, ProductionRecord>;
+  isBulk: boolean;
+  quantity: number;
+  individualAnimals?: Array<{
+    id: string;
+    status: 'active' | 'sold' | 'deceased';
+    soldDate?: string;
+    sellingPrice?: number;
+    daysInFarm?: number;
+    individualExpense?: number;
+    individualProfit?: number;
+    individualLoss?: number;
+  }>;
 }
 
 export interface MonthlyExpense {
@@ -111,8 +130,8 @@ const getCurrentUserId = (): string => {
   return auth.currentUser.uid;
 };
 
-const convertTimestampToString = (timestamp: Timestamp | undefined): string | undefined => {
-  return timestamp ? timestamp.toDate().toISOString() : undefined;
+const convertTimestampToString = (timestamp: Timestamp | Timestamp): string | '' => {
+  return timestamp ? timestamp.toDate().toISOString() : timestamp;
 };
 
 const formatDocumentData = <T extends DocumentData>(docData: DocumentData, docId: string): T => {
@@ -161,6 +180,7 @@ const getHealthRecordsRef = (animalId: string) => collection(db, `animalRecords/
 const getBreedingRecordsRef = (animalId: string) => collection(db, `animalRecords/${animalId}/breedingRecords`);
 const getVaccinationRecordsRef = (animalId: string) => collection(db, `animalRecords/${animalId}/vaccinationRecords`);
 const getExpensesRef = (animalId: string) => collection(db, `animalRecords/${animalId}/expenses`);
+const getLoadRecordsRef = () => collection(db, 'loadRecords');
 
 // Animal Record Functions
 export const addAnimalRecord = async (data: Omit<AnimalRecord, 'id' | 'createdAt' | 'updatedAt'>) => {
@@ -584,4 +604,57 @@ export const updateAnimalProduction = async (
     console.error(`Error updating ${productionType} production:`, error);
     throw new Error(error.message || `Failed to update ${productionType} production`);
   }
+};
+
+// Load Record Functions
+export const addLoadRecord = async (data: Omit<LoadRecord, 'id' | 'createdAt' | 'updatedAt' | 'totalAmount'>) => {
+  const docRef = doc(collection(db, 'loadRecords'));
+  const now = new Date().toISOString();
+  const totalAmount = data.quantity * data.price;
+  
+  const record: LoadRecord = {
+    ...data,
+    id: docRef.id,
+    totalAmount,
+    createdAt: now,
+    updatedAt: now,
+  };
+  
+  await setDoc(docRef, record);
+  return record;
+};
+
+export const getLoadRecords = async (userId: string) => {
+  const q = query(
+    getLoadRecordsRef(),
+    where('userId', '==', userId),
+    orderBy('date', 'desc')
+  );
+  
+  const querySnapshot = await getDocs(q);
+  return querySnapshot.docs.map(doc => doc.data() as LoadRecord);
+};
+
+export const getLoadRecordById = async (id: string) => {
+  const docRef = doc(db, 'loadRecords', id);
+  const docSnap = await getDoc(docRef);
+  
+  if (docSnap.exists()) {
+    return docSnap.data() as LoadRecord;
+  }
+  
+  return null;
+};
+
+export const updateLoadRecord = async (id: string, data: Partial<LoadRecord>) => {
+  const docRef = doc(db, 'loadRecords', id);
+  await updateDoc(docRef, {
+    ...data,
+    updatedAt: new Date().toISOString(),
+  });
+};
+
+export const deleteLoadRecord = async (id: string) => {
+  const docRef = doc(db, 'loadRecords', id);
+  await deleteDoc(docRef);
 };

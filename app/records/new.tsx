@@ -11,7 +11,8 @@ import {
   Platform,
   Image,
   KeyboardAvoidingView,
-  SafeAreaView
+  SafeAreaView,
+  Switch
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -33,6 +34,14 @@ interface FormData {
   notes: string;
   soldDate: Date;
   sellingPrice: string;
+  isBulk: boolean;
+  quantity: string;
+  individualAnimals: Array<{
+    id: string;
+    status: 'active' | 'sold' | 'deceased';
+    soldDate?: Date;
+    sellingPrice?: string;
+  }>;
 }
 
 export default function NewRecordScreen(): React.ReactElement {
@@ -55,7 +64,10 @@ export default function NewRecordScreen(): React.ReactElement {
     description: '',
     notes: '',
     soldDate: new Date(),
-    sellingPrice: ''
+    sellingPrice: '',
+    isBulk: false,
+    quantity: '1',
+    individualAnimals: []
   });
 
   const handleImagePick = async (): Promise<void> => {
@@ -105,32 +117,64 @@ export default function NewRecordScreen(): React.ReactElement {
       return;
     }
 
-    if (formData.status === 'sold' && !formData.sellingPrice) {
-      Alert.alert('Error', 'Please enter selling price for sold animals');
+    if (formData.isBulk && (!formData.quantity || parseInt(formData.quantity) < 1)) {
+      Alert.alert('Error', 'Please enter a valid quantity for bulk animals');
       return;
     }
 
     try {
       setLoading(true);
-      const profit = formData.status === 'sold' 
-        ? parseFloat(formData.sellingPrice) - parseFloat(formData.purchasePrice)
-        : 0;
-      const loss = formData.status === 'sold' && profit < 0 ? Math.abs(profit) : 0;
+      
+      // Calculate individual animal expenses and profits
+      const quantity = formData.isBulk ? parseInt(formData.quantity) : 1;
+      const totalExpense = parseFloat(formData.purchasePrice) || 0;
+      const expensePerAnimal = totalExpense / quantity;
+
+      const individualAnimals = formData.isBulk ? 
+        Array(quantity).fill(null).map((_, index) => ({
+          id: `${formData.animalNumber}-${index + 1}`,
+          status: 'active' as const,
+          daysInFarm: 0,
+          individualExpense: expensePerAnimal,
+          individualProfit: 0,
+          individualLoss: 0,
+          soldDate: undefined,
+          sellingPrice: undefined
+        })) : 
+        [{
+          id: formData.animalNumber,
+          status: formData.status,
+          soldDate: formData.status === 'sold' ? formData.soldDate.toISOString() : undefined,
+          sellingPrice: formData.status === 'sold' ? parseFloat(formData.sellingPrice) : undefined,
+          daysInFarm: 0,
+          individualExpense: totalExpense,
+          individualProfit: formData.status === 'sold' ? Math.max(0, parseFloat(formData.sellingPrice) - totalExpense) : 0,
+          individualLoss: formData.status === 'sold' ? Math.max(0, totalExpense - parseFloat(formData.sellingPrice)) : 0
+        }];
 
       await addAnimalRecord({
         ...formData,
         animalNumber: formData.animalNumber.trim(),
-        purchasePrice: parseFloat(formData.purchasePrice) || 0,
+        purchasePrice: totalExpense,
         sellingPrice: formData.status === 'sold' ? parseFloat(formData.sellingPrice) : 0,
         soldDate: formData.status === 'sold' ? formData.soldDate.toISOString() : undefined,
-        profit: formData.status === 'sold' ? Math.max(0, profit) : 0,
-        loss: formData.status === 'sold' ? loss : 0,
+        profit: formData.status === 'sold' ? Math.max(0, parseFloat(formData.sellingPrice) - totalExpense) : 0,
+        loss: formData.status === 'sold' ? Math.max(0, totalExpense - parseFloat(formData.sellingPrice)) : 0,
         gender: formData.gender,
         status: formData.status,
         purchaseDate: formData.purchaseDate.toISOString(),
-        saleDate: formData.soldDate,
+        isBulk: formData.isBulk,
+        quantity: quantity,
+        individualAnimals: individualAnimals,
         expenses: {},
-        userId: formData.animalNumber
+        userId: formData.animalNumber,
+        salePrice: 0,
+        date: new Date().toISOString(),
+        weight: 0,
+        animalType: '',
+        recordType: '',
+        collectionNames: formData.collectionNames,
+        saleDate: formData.status === 'sold' ? formData.soldDate.toISOString() : undefined
       });
       
       Alert.alert('Success', 'Animal record added successfully', [
@@ -206,24 +250,24 @@ export default function NewRecordScreen(): React.ReactElement {
                 </View>
               </View>
 
-<View style={styles.addCollectionContainer}>
-  <View style={styles.inputWithIcon}>
-    <Ionicons name="folder" size={20} color="#777" style={styles.inputIcon} />
-    <TextInput
-      style={styles.collectionInput}
-      value={newCollection}
-      onChangeText={setNewCollection}
-      placeholder="Add new collection"
-      placeholderTextColor="#999"
-    />
-  </View>
-  <TouchableOpacity
-    style={styles.addCollectionButton}
-    onPress={handleAddCollection}
-  >
-    <Ionicons name="add" size={22} color="#FFFFFF" />
-  </TouchableOpacity>
-</View>
+              <View style={styles.addCollectionContainer}>
+                <View style={styles.inputWithIcon}>
+                  <Ionicons name="folder" size={20} color="#777" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.collectionInput}
+                    value={newCollection}
+                    onChangeText={setNewCollection}
+                    placeholder="Add new collection"
+                    placeholderTextColor="#999"
+                  />
+                </View>
+                <TouchableOpacity
+                  style={styles.addCollectionButton}
+                  onPress={handleAddCollection}
+                >
+                  <Ionicons name="add" size={22} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
               <View style={styles.inputGroup}>
                 {renderFieldLabel('Category')}
                 <View style={styles.inputWithIcon}>
@@ -410,6 +454,37 @@ export default function NewRecordScreen(): React.ReactElement {
             </View>
 
             <View style={styles.card}>
+              <Text style={styles.cardTitle}>Bulk Quantity</Text>
+              
+              <View style={styles.inputGroup}>
+                <View style={styles.switchContainer}>
+                  <Text style={styles.switchLabel}>Bulk Entry</Text>
+                  <Switch
+                    value={formData.isBulk}
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, isBulk: value }))}
+                  />
+                </View>
+
+                {formData.isBulk && (
+                  <View style={styles.inputGroup}>
+                    {renderFieldLabel('Quantity', true)}
+                    <View style={styles.inputWithIcon}>
+                      <Ionicons name="calculator" size={20} color="#777" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.input}
+                        value={formData.quantity}
+                        onChangeText={(text: string) => setFormData(prev => ({ ...prev, quantity: text }))}
+                        placeholder="Enter quantity"
+                        placeholderTextColor="#999"
+                        keyboardType="numeric"
+                      />
+                    </View>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.card}>
               <Text style={styles.cardTitle}>Additional Information</Text>
               
               <View style={styles.inputGroup}>
@@ -574,18 +649,6 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     fontWeight: '500',
   },
-  // inputWithIcon: {
-  //   flexDirection: 'row',
-  //   alignItems: 'center',
-  //   backgroundColor: '#FFFFFF',
-  //   borderWidth: 1,
-  //   borderColor: '#E0E0E0',
-  //   borderRadius: 8,
-  //   overflow: 'hidden',
-  // },
-  // inputIcon: {
-  //   paddingHorizontal: 12,
-  // },
   input: {
     flex: 1,
     padding: 12,
@@ -764,5 +827,16 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  switchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  switchLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#555555',
+    marginRight: 10,
   },
 });

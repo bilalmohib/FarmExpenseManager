@@ -56,7 +56,7 @@ interface ReportStats {
   }>;
 }
 
-export default function ReportsScreen() {
+export default function LoadInOut() {
   const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState<AnimalRecord[]>([]);
   const [stats, setStats] = useState<ReportStats>({

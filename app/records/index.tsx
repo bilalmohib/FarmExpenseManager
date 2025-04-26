@@ -11,7 +11,8 @@ import {
   Alert,
   RefreshControl,
   Platform,
-  ScrollView
+  ScrollView,
+  SafeAreaView
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -245,99 +246,60 @@ export default function RecordsScreen() {
     return `₹${amount.toFixed(2)}`;
   };
 
-  const renderRecord = ({ item }: { item: AnimalRecord }) => {
-    const statusColor = item.status === 'sold' ? '#4CAF50' : 
-                       item.status === 'deceased' ? '#F44336' : '#FF9800';
-    
+  const renderRecordItem = ({ item }: { item: AnimalRecord }) => {
     return (
       <View style={styles.recordCard}>
         <View style={styles.recordHeader}>
-          <Text style={styles.recordNumber}>ID: {item.animalNumber || 'N/A'}</Text>
-          <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+          <Text style={styles.recordTitle}>ID: {item.animalNumber}</Text>
+          <View style={[
+            styles.statusBadge,
+            item.status === 'sold' ? styles.soldBadge :
+            item.status === 'deceased' ? styles.deceasedBadge :
+            styles.activeBadge
+          ]}>
             <Text style={styles.statusText}>{item.status}</Text>
           </View>
         </View>
-        
-        <View style={styles.recordBody}>
-          <View style={styles.recordImageContainer}>
-            {item.imageUrl ? (
-              <Image 
-                source={{ uri: item.imageUrl }} 
-                style={styles.recordImage} 
-                resizeMode="cover"
-              />
-            ) : (
-              <View style={styles.noImagePlaceholder}>
-                <Ionicons name="image-outline" size={40} color="#CCCCCC" />
-              </View>
-            )}
-          </View>
-          
-          <View style={styles.recordDetails}>
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Collections:</Text>
-              <Text style={styles.detailValue}>
-                {(item.collectionNames || []).join(', ') || 'No collections'}
-              </Text>
-            </View>
-            
-            {item.category && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Category:</Text>
-                <Text style={styles.detailValue}>{item.category}</Text>
-              </View>
-            )}
-            
-            {/* {item.breed && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Breed:</Text>
-                <Text style={styles.detailValue}>{item.breed}</Text>
-              </View>
-            )} */}
-            
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Purchase:</Text>
-              <Text style={styles.detailValue}>
-                {formatDate(item.purchaseDate)} - {formatCurrency(item.purchasePrice || 0)}
-              </Text>
-            </View>
-            
-            {item.soldDate && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Sold:</Text>
-                <Text style={styles.detailValue}>
-                  {formatDate(item.soldDate)} - {formatCurrency(item.sellingPrice || 0)}
-                </Text>
-              </View>
-            )}
-            
-            <View style={styles.profitLossRow}>
-              {item.profit && item.profit > 0 ? (
-                <Text style={styles.profitText}>Profit: {formatCurrency(item.profit)}</Text>
-              ) : item.loss && item.loss > 0 ? (
-                <Text style={styles.lossText}>Loss: {formatCurrency(item.loss)}</Text>
-              ) : (
-                <Text>No profit/loss recorded</Text>
-              )}
-            </View>
-          </View>
+
+        <View style={styles.recordInfo}>
+          <Text style={styles.infoText}>Category: {item.category}</Text>
+          <Text style={styles.infoText}>Collections: {item.collectionNames.join(', ')}</Text>
+          <Text style={styles.infoText}>Purchase Date: {new Date(item.purchaseDate).toLocaleDateString()}</Text>
+          <Text style={styles.infoText}>Purchase Price: ₹{item.purchasePrice}</Text>
+          {item.status === 'sold' && (
+            <>
+              <Text style={styles.infoText}>Sold Date: {new Date(item.soldDate!).toLocaleDateString()}</Text>
+              <Text style={styles.infoText}>Selling Price: ₹{item.sellingPrice}</Text>
+            </>
+          )}
+          {item.isBulk && (
+            <Text style={styles.infoText}>Quantity: {item.quantity}</Text>
+          )}
         </View>
-        
+
         <View style={styles.recordActions}>
-          <TouchableOpacity 
-            style={styles.actionButton}
+          {item.isBulk && (
+            <TouchableOpacity
+              style={[styles.actionButton, styles.bulkButton]}
+              onPress={() => router.push(`/records/bulk/${item.id}`)}
+            >
+              <Ionicons name="list" size={16} color="#FFFFFF" />
+              <Text style={styles.actionButtonText}>Manage Animals</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={[styles.actionButton, styles.editButton]}
             onPress={() => handleEditRecord(item.id)}
           >
-            <Ionicons name="create-outline" size={20} color={Colors.light.tint} />
-            <Text style={styles.actionText}>Edit</Text>
+            <Ionicons name="create" size={16} color="#FFFFFF" />
+            <Text style={styles.actionButtonText}>Edit</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.actionButton, styles.deleteButton]}
             onPress={() => handleDeleteRecord(item)}
           >
-            <Ionicons name="trash-outline" size={20} color="#F44336" />
-            <Text style={[styles.actionText, { color: '#F44336' }]}>Delete</Text>
+            <Ionicons name="trash" size={16} color="#FFFFFF" />
+            <Text style={styles.actionButtonText}>Delete</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -357,7 +319,7 @@ export default function RecordsScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Animal Records</Text>
         <View style={styles.filters}>
@@ -556,7 +518,7 @@ export default function RecordsScreen() {
       ) : (
         <FlatList
           data={filteredRecords}
-          renderItem={renderRecord}
+          renderItem={renderRecordItem}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.recordsList}
           refreshControl={
@@ -575,7 +537,7 @@ export default function RecordsScreen() {
       >
         <Ionicons name="add" size={24} color="#FFFFFF" />
       </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -599,9 +561,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   picker: {
-    width: 120,
     height: 50,
-    marginRight: 10,
+    width: '100%',
+    color: '#333333',
+    backgroundColor: '#FFFFFF',
   },
   searchInput: {
     flex: 1,
@@ -707,7 +670,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#EEEEEE',
   },
-  recordNumber: {
+  recordTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
@@ -717,62 +680,27 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 4,
   },
+  activeBadge: {
+    backgroundColor: '#4CAF50',
+  },
+  soldBadge: {
+    backgroundColor: '#F44336',
+  },
+  deceasedBadge: {
+    backgroundColor: '#FF9800',
+  },
   statusText: {
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: 'bold',
   },
-  recordBody: {
-    flexDirection: 'row',
+  recordInfo: {
     padding: 15,
   },
-  recordImageContainer: {
-    width: 80,
-    height: 80,
-    marginRight: 15,
-  },
-  recordImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 5,
-    backgroundColor: '#F0F0F0',
-  },
-  noImagePlaceholder: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#F0F0F0',
-    borderRadius: 5,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  recordDetails: {
-    flex: 1,
-  },
-  detailRow: {
-    flexDirection: 'row',
+  infoText: {
     marginBottom: 6,
-  },
-  detailLabel: {
-    width: 80,
-    fontSize: 14,
-    color: '#666',
-  },
-  detailValue: {
-    flex: 1,
-    fontSize: 14,
     color: '#333',
     fontWeight: '500',
-  },
-  profitLossRow: {
-    marginTop: 8,
-  },
-  profitText: {
-    color: '#4CAF50',
-    fontWeight: 'bold',
-  },
-  lossText: {
-    color: '#F44336',
-    fontWeight: 'bold',
   },
   recordActions: {
     flexDirection: 'row',
@@ -786,15 +714,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 12,
   },
+  editButton: {
+    borderLeftWidth: 1,
+    borderLeftColor: '#EEEEEE',
+  },
   deleteButton: {
     borderLeftWidth: 1,
     borderLeftColor: '#EEEEEE',
   },
-  actionText: {
+  actionButtonText: {
     fontSize: 14,
     fontWeight: '500',
     marginLeft: 5,
     color: Colors.light.tint,
+  },
+  bulkButton: {
+    backgroundColor: '#673AB7',
   },
   addButton: {
     position: 'absolute',
@@ -811,6 +746,26 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
+  },
+  filterContainer: {
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  filterLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 8,
+    color: '#333333',
+  },
+  pickerWrapper: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    marginBottom: 16,
   },
 }); 
 

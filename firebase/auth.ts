@@ -126,3 +126,5 @@ export const onAuthStateChange = (
 ): (() => void) => {
   return onAuthStateChanged(auth, callback);
 }; 
+
+export { auth };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,54 +12,63 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  RefreshControl
+  RefreshControl,
+  SafeAreaView,
+  StatusBar
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
-import { getMonthlyExpenses, addMonthlyExpense, updateMonthlyExpense, deleteMonthlyExpense, MonthlyExpense } from '../../firebase/firestore';
+import { getMonthlyExpenses, addMonthlyExpense, updateMonthlyExpense, deleteMonthlyExpense, MonthlyExpense, getAllAnimalRecords, AnimalRecord } from '../../firebase/firestore';
+import { Picker } from '@react-native-picker/picker';
+
+interface CollectionStats {
+  totalExpense: number;
+  profit: number;
+  loss: number;
+  animalCount: number;
+  animals: Array<{
+    id: string;
+    animalNumber: string;
+    totalExpense: number;
+    profit: number;
+    loss: number;
+    status: 'active' | 'sold' | 'deceased';
+  }>;
+}
 
 export default function BreedingScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [expenses, setExpenses] = useState<MonthlyExpense[]>([]);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [currentExpense, setCurrentExpense] = useState<MonthlyExpense | null>(null);
-  const [expenseType, setExpenseType] = useState('');
-  const [description, setDescription] = useState('');
-  const [amount, setAmount] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  
-  // Month selector data
-  const months = [
-    { value: 1, label: 'January' },
-    { value: 2, label: 'February' },
-    { value: 3, label: 'March' },
-    { value: 4, label: 'April' },
-    { value: 5, label: 'May' },
-    { value: 6, label: 'June' },
-    { value: 7, label: 'July' },
-    { value: 8, label: 'August' },
-    { value: 9, label: 'September' },
-    { value: 10, label: 'October' },
-    { value: 11, label: 'November' },
-    { value: 12, label: 'December' }
-  ];
-  
+  const [records, setRecords] = useState<AnimalRecord[]>([]);
+  const [monthlyExpenses, setMonthlyExpenses] = useState<MonthlyExpense[]>([]);
+  const [allCollections, setAllCollections] = useState<string[]>([]);
+  const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
+
   useEffect(() => {
-    loadExpenses();
-  }, [selectedMonth, selectedYear]);
+    loadData();
+  }, []);
   
-  const loadExpenses = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
-      const fetchedExpenses = await getMonthlyExpenses(selectedYear, selectedMonth);
-      setExpenses(fetchedExpenses);
+      const [fetchedRecords, fetchedExpenses] = await Promise.all([
+        getAllAnimalRecords(),
+        getMonthlyExpenses()
+      ]);
+      setRecords(fetchedRecords);
+      setMonthlyExpenses(fetchedExpenses);
+
+      const uniqueCollections = new Set<string>();
+      fetchedRecords.forEach(record => {
+        record.collectionNames?.forEach(name => uniqueCollections.add(name));
+      });
+      setAllCollections(Array.from(uniqueCollections).sort());
+
     } catch (error) {
-      console.error('Error loading expenses:', error);
-      Alert.alert('Error', 'Failed to load expenses. Please try again.');
+      console.error('Error loading data:', error);
+      Alert.alert('Error', 'Failed to load breeding data');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -68,336 +77,167 @@ export default function BreedingScreen() {
   
   const handleRefresh = () => {
     setRefreshing(true);
-    loadExpenses();
+    loadData();
   };
   
-  const handleAddExpense = () => {
-    setCurrentExpense(null);
-    setExpenseType('');
-    setDescription('');
-    setAmount('');
-    setModalVisible(true);
-  };
-  
-  const handleEditExpense = (expense: MonthlyExpense) => {
-    setCurrentExpense(expense);
-    setExpenseType(expense.type);
-    setDescription(expense.description || '');
-    setAmount(expense.amount.toString());
-    setModalVisible(true);
-  };
-  
-  const handleDeleteExpense = (expense: MonthlyExpense) => {
-    Alert.alert(
-      'Confirm Delete',
-      'Are you sure you want to delete this expense entry?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          onPress: async () => {
-            try {
-              setLoading(true);
-              await deleteMonthlyExpense(expense.id);
-              loadExpenses();
-            } catch (error) {
-              console.error('Error deleting expense:', error);
-              Alert.alert('Error', 'Failed to delete expense. Please try again.');
-              setLoading(false);
-            }
-          },
-          style: 'destructive',
-        },
-      ]
-    );
-  };
-  
-  const handleSaveExpense = async () => {
-    if (!expenseType.trim()) {
-      Alert.alert('Error', 'Please enter an expense type');
-      return;
+  const calculateAnimalStats = (record: AnimalRecord): { totalExpense: number; profit: number; loss: number } => {
+    let totalExpense = record.purchasePrice || 0;
+    let profit = 0;
+    let loss = 0;
+
+    totalExpense += Object.values(record.expenses || {}).reduce((sum: number, expense) => sum + (expense as { amount: number }).amount, 0);
+
+    const taggedExpenses = monthlyExpenses.filter(expense =>
+      expense.tags && record.collectionNames?.some(collName => expense.tags.includes(collName))
+    ).reduce((sum, expense) => sum + expense.amount, 0);
+
+    totalExpense += taggedExpenses;
+
+    if (record.status === 'sold') {
+      const salePrice = record.sellingPrice || 0;
+      if (salePrice > totalExpense) {
+        profit = salePrice - totalExpense;
+      } else {
+        loss = totalExpense - salePrice;
+      }
     }
-    
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      Alert.alert('Error', 'Please enter a valid amount');
-      return;
-    }
-    
-    try {
-      setModalVisible(false);
-      setLoading(true);
-      
-      if (currentExpense) {
-        // Update existing expense
-        await updateMonthlyExpense(currentExpense.id, {
-          type: expenseType.trim(),
-          group: '', // Assuming group is the correct property
-          description: description.trim(),
-          amount: amountNum,
-          year: selectedYear,
-          month: selectedMonth,
-          date: new Date().toISOString(),
+
+    return { totalExpense, profit, loss };
+  };
+
+  const breedingStats = useMemo(() => {
+    const stats: Record<string, CollectionStats> = {};
+
+    records.forEach(record => {
+      const animalStats = calculateAnimalStats(record);
+
+      record.collectionNames?.forEach(collectionName => {
+        if (!stats[collectionName]) {
+          stats[collectionName] = {
+            totalExpense: 0,
+            profit: 0,
+            loss: 0,
+            animalCount: 0,
+            animals: []
+          };
+        }
+        stats[collectionName].totalExpense += animalStats.totalExpense;
+        stats[collectionName].profit += animalStats.profit;
+        stats[collectionName].loss += animalStats.loss;
+        stats[collectionName].animalCount += record.isBulk ? (record.quantity || 1) : 1;
+        stats[collectionName].animals.push({
+          id: record.id,
+          animalNumber: record.animalNumber,
+          totalExpense: animalStats.totalExpense,
+          profit: animalStats.profit,
+          loss: animalStats.loss,
+          status: record.status
         });
-      } else {
-        // Add new expense
-        await addMonthlyExpense({
-          type: expenseType.trim(),
-          group: '', // Assuming group is the correct property
-          description: description.trim(),
-          amount: amountNum,
-          year: selectedYear,
-          month: selectedMonth,
-          date: new Date().toISOString(),
-        });
-      }
-      
-      loadExpenses();
-    } catch (error) {
-      console.error('Error saving expense:', error);
-      Alert.alert('Error', 'Failed to save expense. Please try again.');
-      setLoading(false);
+      });
+    });
+    return stats;
+  }, [records, monthlyExpenses]);
+
+  const filteredCollections = useMemo(() => {
+    if (!selectedCollection) {
+      return Object.keys(breedingStats).sort();
     }
-  };
+    return selectedCollection in breedingStats ? [selectedCollection] : [];
+  }, [selectedCollection, breedingStats]);
   
-  const changeMonth = (direction: 'prev' | 'next') => {
-    let newMonth = selectedMonth;
-    let newYear = selectedYear;
-    
-    if (direction === 'prev') {
-      if (selectedMonth === 1) {
-        newMonth = 12;
-        newYear = selectedYear - 1;
-      } else {
-        newMonth = selectedMonth - 1;
-      }
-    } else {
-      if (selectedMonth === 12) {
-        newMonth = 1;
-        newYear = selectedYear + 1;
-      } else {
-        newMonth = selectedMonth + 1;
-      }
-    }
-    
-    setSelectedMonth(newMonth);
-    setSelectedYear(newYear);
+  const formatCurrency = (value: number): string => {
+    return `₹${Math.abs(value).toFixed(2)}`;
   };
-  
-  const renderMonthYear = () => {
-    const monthName = months.find(m => m.value === selectedMonth)?.label;
-    return `${monthName} ${selectedYear}`;
-  };
-  
-  const formatCurrency = (value: number) => {
-    return `₹${value.toFixed(2)}`;
-  };
-  
-  const calculateTotal = () => {
-    return expenses.reduce((sum, expense) => sum + expense.amount, 0);
-  };
-  
-  const renderExpenseItem = ({ item }: { item: MonthlyExpense }) => {
+
+  const renderCollectionCard = (collectionName: string) => {
+    const data = breedingStats[collectionName];
+    if (!data) return null;
+
     return (
-      <View style={styles.expenseCard}>
-        <View style={styles.expenseMain}>
-          <View style={styles.expenseInfo}>
-            <Text style={styles.expenseType}>{item.type}</Text>
-            {item.description ? (
-              <Text style={styles.expenseDescription}>{item.description}</Text>
-            ) : null}
-            <Text style={styles.expenseDate}>
-              {new Date(item.date).toLocaleDateString()}
-            </Text>
-          </View>
-          <Text style={styles.expenseAmount}>{formatCurrency(item.amount)}</Text>
+      <View key={collectionName} style={styles.card}>
+        <Text style={styles.cardTitle}>{collectionName}</Text>
+        <View style={styles.collectionStatsContainer}>
+            <View style={styles.statItem}><Text style={styles.statLabel}>Animals:</Text><Text style={styles.statValue}>{data.animalCount}</Text></View>
+            <View style={styles.statItem}><Text style={styles.statLabel}>Total Expense:</Text><Text style={styles.statValue}>{formatCurrency(data.totalExpense)}</Text></View>
+            <View style={styles.statItem}><Text style={styles.statLabel}>Total Profit:</Text><Text style={[styles.statValue, styles.profitText]}>{formatCurrency(data.profit)}</Text></View>
+            <View style={styles.statItem}><Text style={styles.statLabel}>Total Loss:</Text><Text style={[styles.statValue, styles.lossText]}>{formatCurrency(data.loss)}</Text></View>
         </View>
-        
-        <View style={styles.expenseActions}>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleEditExpense(item)}
-          >
-            <Ionicons name="create-outline" size={18} color={Colors.light.tint} />
-            <Text style={styles.actionText}>Edit</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.actionButton, styles.deleteButton]}
-            onPress={() => handleDeleteExpense(item)}
-          >
-            <Ionicons name="trash-outline" size={18} color="#ff3b30" />
-            <Text style={[styles.actionText, styles.deleteText]}>Delete</Text>
-          </TouchableOpacity>
-        </View>
+
+        <Text style={styles.subTitle}>Animals in this Collection:</Text>
+        {data.animals.map(animal => renderAnimalRow(animal))}
       </View>
     );
   };
-  
-  return (
-    <View style={styles.container}>
-      <View style={styles.monthSelector}>
-        <TouchableOpacity
-          style={styles.monthButton}
-          onPress={() => changeMonth('prev')}
-        >
-          <Ionicons name="chevron-back" size={20} color="#555" />
-        </TouchableOpacity>
-        
-        <Text style={styles.monthYearText}>{renderMonthYear()}</Text>
-        
-        <TouchableOpacity
-          style={styles.monthButton}
-          onPress={() => changeMonth('next')}
-        >
-          <Ionicons name="chevron-forward" size={20} color="#555" />
-        </TouchableOpacity>
-      </View>
-      
-      {loading && !refreshing ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.light.tint} />
-          <Text style={styles.loadingText}>Loading expenses...</Text>
+
+  const renderAnimalRow = (animal: CollectionStats['animals'][0]) => (
+    <View key={animal.id} style={styles.animalRow}>
+        <Text style={styles.animalId}>{animal.animalNumber} ({animal.status})</Text>
+        <View style={styles.animalStats}>
+            <Text style={styles.animalStat}>Exp: {formatCurrency(animal.totalExpense)}</Text>
+            <Text style={[styles.animalStat, animal.profit > 0 ? styles.profitText : styles.lossText]}>
+                {animal.profit > 0 ? `P: ${formatCurrency(animal.profit)}` : `L: ${formatCurrency(animal.loss)}`}
+            </Text>
         </View>
-      ) : (
-        <>
-          <View style={styles.totalContainer}>
-            <Text style={styles.totalLabel}>Total Expenses:</Text>
-            <Text style={styles.totalAmount}>{formatCurrency(calculateTotal())}</Text>
-          </View>
-          
-          {expenses.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="wallet-outline" size={60} color="#ccc" />
-              <Text style={styles.emptyText}>No expenses found</Text>
-              <Text style={styles.emptySubtext}>
-                Add monthly expenses to track your farm costs
-              </Text>
-            </View>
-          ) : (
-            <FlatList
-              data={expenses}
-              renderItem={renderExpenseItem}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.expensesList}
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={handleRefresh}
-                  colors={[Colors.light.tint]}
-                />
-              }
-            />
-          )}
-          
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={handleAddExpense}
-          >
-            <Ionicons name="add" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-        </>
-      )}
-      
-      {/* Add/Edit Expense Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalContainer}
-        >
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {currentExpense ? 'Edit Expense' : 'Add Expense'}
-              </Text>
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => setModalVisible(false)}
-              >
-                <Ionicons name="close" size={24} color="#555" />
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView style={styles.modalForm}>
-              <Text style={styles.inputLabel}>Expense Type *</Text>
-              <TextInput
-                style={styles.input}
-                value={expenseType}
-                onChangeText={setExpenseType}
-                placeholder="e.g., Feed, Medicine, Labour"
-              />
-              <Text style={styles.inputLabel}>Description</Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                value={description}
-                onChangeText={setDescription}
-                placeholder="Additional details (optional)"
-                multiline
-                numberOfLines={3}
-              />
-              
-              <Text style={styles.inputLabel}>Amount (₹) *</Text>
-              <TextInput
-                style={styles.input}
-                value={amount}
-                onChangeText={setAmount}
-                placeholder="0.00"
-                keyboardType="numeric"
-              />
-              
-              <View style={styles.formActions}>
-                <TouchableOpacity
-                  style={[styles.formButton, styles.cancelButton]}
-                  onPress={() => setModalVisible(false)}
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[styles.formButton, styles.saveButton]}
-                  onPress={handleSaveExpense}
-                >
-                  <Text style={styles.saveButtonText}>Save</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
     </View>
+  );
+  
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color={Colors.light.tint} />
+        <Text style={styles.loadingText}>Loading Breeding Data...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <View style={styles.header}>
+        <Text style={styles.title}>Breeding Analysis</Text>
+      </View>
+
+      <View style={styles.filterContainer}>
+         <Text style={styles.filterLabel}>Filter by Collection:</Text>
+         <View style={styles.pickerWrapper}>
+            <Picker
+                selectedValue={selectedCollection}
+                onValueChange={(itemValue) => setSelectedCollection(itemValue || null)}
+                style={styles.picker}
+                dropdownIconColor={Colors.light.tint}
+            >
+                <Picker.Item label="All Collections" value={null} />
+                {allCollections.map(coll => (
+                <Picker.Item key={coll} label={coll} value={coll} />
+                ))}
+            </Picker>
+         </View>
+      </View>
+
+      <ScrollView 
+        style={styles.scrollView}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={[Colors.light.tint]}/>}
+      >
+        {filteredCollections.length === 0 && !selectedCollection && (
+             <Text style={styles.noDataText}>No collections found.</Text>
+        )}
+        {filteredCollections.length === 0 && selectedCollection && (
+             <Text style={styles.noDataText}>No data found for "{selectedCollection}".</Text>
+        )}
+        {filteredCollections.map(collectionName => renderCollectionCard(collectionName))}
+        
+        <View style={styles.bottomPadding} />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: Colors.light.background,
   },
-  monthSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  monthButton: {
-    padding: 10,
-  },
-  monthYearText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginHorizontal: 20,
-  },
-  loadingContainer: {
-    flex: 1,
+  centered: {
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -405,198 +245,133 @@ const styles = StyleSheet.create({
     marginTop: 10,
     color: '#666',
   },
-  totalContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  header: {
+    padding: 16,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 16, 
     backgroundColor: '#FFFFFF',
-    padding: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
-  },
-  totalLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
-  },
-  totalAmount: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#E53935',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
   },
-  emptyText: {
-    fontSize: 18,
+  title: {
+    fontSize: 20,
     fontWeight: 'bold',
-    color: '#666',
-    marginTop: 10,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
-    marginTop: 5,
-  },
-  expensesList: {
-    padding: 15,
-  },
-  expenseCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  expenseMain: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  expenseInfo: {
-    flex: 1,
-  },
-  expenseType: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
-  },
-  expenseDescription: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
-  },
-  expenseDate: {
-    fontSize: 12,
-    color: '#999',
-  },
-  expenseAmount: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#E53935',
-  },
-  expenseActions: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    paddingTop: 10,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 15,
-  },
-  actionText: {
-    marginLeft: 5,
-    fontSize: 14,
     color: Colors.light.tint,
   },
-  deleteButton: {
-    marginLeft: 10,
-  },
-  deleteText: {
-    color: '#ff3b30',
-  },
-  addButton: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: Colors.light.tint,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 5,
-  },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  modalContent: {
+  filterContainer: {
+    padding: 16,
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingBottom: 20,
-    maxHeight: '80%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
-    padding: 15,
   },
-  modalTitle: {
+  filterLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 8,
+    color: '#333333',
+  },
+  pickerWrapper: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+  },
+  picker: {
+    height: 50,
+    width: '100%',
+    color: '#333333',
+  },
+  scrollView: {
+    flex: 1,
+    paddingVertical: 8,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  cardTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
+    color: Colors.light.tint,
+    marginBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    paddingBottom: 8,
   },
-  closeButton: {
-    padding: 5,
+  collectionStatsContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      marginBottom: 15,
   },
-  modalForm: {
-    padding: 15,
+  statItem: {
+      flexDirection: 'row',
+      width: '50%',
+      marginBottom: 8,
+      alignItems: 'center',
   },
-  inputLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#666',
-    marginBottom: 5,
+  statLabel: {
+      fontSize: 13,
+      color: '#666',
+      marginRight: 5,
   },
-  input: {
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 15,
-    fontSize: 16,
+  statValue: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: '#333',
   },
-  textArea: {
-    height: 80,
-    textAlignVertical: 'top',
+  subTitle: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: '#444',
+      marginTop: 10,
+      marginBottom: 8,
   },
-  formActions: {
+  animalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 10,
-  },
-  formButton: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 8,
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
   },
-  cancelButton: {
-    backgroundColor: '#F5F5F5',
-    marginRight: 10,
+  animalId: {
+      flex: 1,
+      fontSize: 14,
+      color: '#555',
   },
-  saveButton: {
-    backgroundColor: Colors.light.tint,
-    marginLeft: 10,
+  animalStats: {
+      flexDirection: 'row',
+      alignItems: 'center',
   },
-  cancelButtonText: {
-    color: '#666',
-    fontWeight: '600',
+  animalStat: {
+      fontSize: 13,
+      marginLeft: 10,
+      fontWeight: '500',
   },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
+  profitText: {
+    color: Colors.light.success,
+    fontWeight: 'bold',
+  },
+  lossText: {
+    color: Colors.light.error,
+    fontWeight: 'bold',
+  },
+  noDataText: {
+      textAlign: 'center',
+      marginTop: 40,
+      fontSize: 16,
+      color: '#888',
+  },
+  bottomPadding: {
+    height: 20,
   },
 }); 

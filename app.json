@@ -2,10 +2,10 @@
   "expo": {
     "name": "farm_expense_manager_app",
     "slug": "farm_expense_manager_app",
+    "scheme": "com.farmexpense.manager",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "com.farmexpense.manager",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
