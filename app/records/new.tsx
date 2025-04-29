@@ -130,6 +130,12 @@ export default function NewRecordScreen(): React.ReactElement {
       const totalExpense = parseFloat(formData.purchasePrice) || 0;
       const expensePerAnimal = totalExpense / quantity;
 
+      // Handle sold date and price based on status
+      const soldDate = formData.status === 'sold' ? formData.soldDate.toISOString() : '';
+      const sellingPrice = formData.status === 'sold' ? parseFloat(formData.sellingPrice) : 0;
+      const profit = formData.status === 'sold' ? Math.max(0, sellingPrice - totalExpense) : 0;
+      const loss = formData.status === 'sold' ? Math.max(0, totalExpense - sellingPrice) : 0;
+
       const individualAnimals = formData.isBulk ? 
         Array(quantity).fill(null).map((_, index) => ({
           id: `${formData.animalNumber}-${index + 1}`,
@@ -138,28 +144,28 @@ export default function NewRecordScreen(): React.ReactElement {
           individualExpense: expensePerAnimal,
           individualProfit: 0,
           individualLoss: 0,
-          soldDate: undefined,
-          sellingPrice: undefined
+          soldDate: '',
+          sellingPrice: 0
         })) : 
         [{
           id: formData.animalNumber,
           status: formData.status,
-          soldDate: formData.status === 'sold' ? formData.soldDate.toISOString() : undefined,
-          sellingPrice: formData.status === 'sold' ? parseFloat(formData.sellingPrice) : undefined,
+          soldDate: soldDate,
+          sellingPrice: sellingPrice,
           daysInFarm: 0,
           individualExpense: totalExpense,
-          individualProfit: formData.status === 'sold' ? Math.max(0, parseFloat(formData.sellingPrice) - totalExpense) : 0,
-          individualLoss: formData.status === 'sold' ? Math.max(0, totalExpense - parseFloat(formData.sellingPrice)) : 0
+          individualProfit: profit,
+          individualLoss: loss
         }];
 
       await addAnimalRecord({
         ...formData,
         animalNumber: formData.animalNumber.trim(),
         purchasePrice: totalExpense,
-        sellingPrice: formData.status === 'sold' ? parseFloat(formData.sellingPrice) : 0,
-        soldDate: formData.status === 'sold' ? formData.soldDate.toISOString() : undefined,
-        profit: formData.status === 'sold' ? Math.max(0, parseFloat(formData.sellingPrice) - totalExpense) : 0,
-        loss: formData.status === 'sold' ? Math.max(0, totalExpense - parseFloat(formData.sellingPrice)) : 0,
+        sellingPrice: sellingPrice,
+        soldDate: soldDate,
+        profit: profit,
+        loss: loss,
         gender: formData.gender,
         status: formData.status,
         purchaseDate: formData.purchaseDate.toISOString(),
@@ -174,7 +180,7 @@ export default function NewRecordScreen(): React.ReactElement {
         animalType: '',
         recordType: '',
         collectionNames: formData.collectionNames,
-        saleDate: formData.status === 'sold' ? formData.soldDate.toISOString() : undefined
+        saleDate: soldDate
       });
       
       Alert.alert('Success', 'Animal record added successfully', [
@@ -250,23 +256,39 @@ export default function NewRecordScreen(): React.ReactElement {
                 </View>
               </View>
 
-              <View style={styles.addCollectionContainer}>
-                <View style={styles.inputWithIcon}>
-                  <Ionicons name="folder" size={20} color="#777" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.collectionInput}
-                    value={newCollection}
-                    onChangeText={setNewCollection}
-                    placeholder="Add new collection"
-                    placeholderTextColor="#999"
-                  />
+              <View style={styles.inputGroup}>
+                {renderFieldLabel('Collections', true)}
+                <View style={styles.collectionsContainer}>
+                  {formData.collectionNames.map((collection, index) => (
+                    <View key={index} style={styles.collectionTag}>
+                      <Text style={styles.collectionText}>{collection}</Text>
+                      <TouchableOpacity
+                        onPress={() => handleRemoveCollection(collection)}
+                        style={styles.removeCollectionButton}
+                      >
+                        <Ionicons name="close" size={14} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
                 </View>
-                <TouchableOpacity
-                  style={styles.addCollectionButton}
-                  onPress={handleAddCollection}
-                >
-                  <Ionicons name="add" size={22} color="#FFFFFF" />
-                </TouchableOpacity>
+                <View style={styles.addCollectionContainer}>
+                  <View style={styles.inputWithIcon}>
+                    <Ionicons name="folder" size={20} color="#777" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.collectionInput}
+                      value={newCollection}
+                      onChangeText={setNewCollection}
+                      placeholder="Add new collection"
+                      placeholderTextColor="#999"
+                    />
+                  </View>
+                  <TouchableOpacity
+                    style={styles.addCollectionButton}
+                    onPress={handleAddCollection}
+                  >
+                    <Ionicons name="add" size={22} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
               </View>
               <View style={styles.inputGroup}>
                 {renderFieldLabel('Category')}
@@ -380,7 +402,7 @@ export default function NewRecordScreen(): React.ReactElement {
                   {[
                     { value: 'active' as const, icon: 'checkmark-circle', label: 'Active' },
                     { value: 'sold' as const, icon: 'cash', label: 'Sold' },
-                    { value: 'deceased' as const, icon: 'alert-circle', label: 'Deceased' }
+                    // { value: 'deceased' as const, icon: 'alert-circle', label: 'Deceased' }
                   ].map(({ value, icon, label }) => (
                     <TouchableOpacity
                       key={value}

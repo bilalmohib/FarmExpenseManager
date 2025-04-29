@@ -92,23 +92,26 @@ export default function ReportsScreen() {
   };
 
   const calculateAnimalExpense = (record: AnimalRecord, monthlyExpenses: MonthlyExpense[]) => {
-    if (!record.isBulk) {
-      // For single animals, calculate as before
-      const animalExpenses = Object.values(record.expenses || {}).reduce((sum: number, expense) => sum + (expense as {amount: number}).amount, 0);
-      const totalExpense = record.purchasePrice + animalExpenses;
-      
-      // Find matching expenses based on collection tags
-      const matchingExpenses = monthlyExpenses.filter(expense => {
-        return expense.tags && record.collectionNames.some(collectionName => 
-          expense.tags.includes(collectionName)
-        );
-      });
+    // Calculate days in farm
+    const daysInFarm = record.status === 'sold' && record.soldDate
+      ? Math.floor((new Date(record.soldDate).getTime() - new Date(record.purchaseDate).getTime()) / (1000 * 60 * 60 * 24))
+      : Math.floor((new Date().getTime() - new Date(record.purchaseDate).getTime()) / (1000 * 60 * 60 * 24));
 
-      // Add matching expenses to total expense
-      const matchingExpensesTotal = matchingExpenses.reduce((sum, expense) => sum + expense.amount, 0);
-      return totalExpense + matchingExpensesTotal;
-    } else {
-      // For bulk animals, calculate based on days in farm
+    // Calculate base expenses
+    const animalExpenses = Object.values(record.expenses || {}).reduce((sum: number, expense) => 
+      sum + (expense as {amount: number}).amount, 0);
+    
+    // Find matching expenses based on collection tags
+    const matchingExpenses = monthlyExpenses.filter(expense => 
+      expense.tags && record.collectionNames.some(collectionName => 
+        expense.tags.includes(collectionName)
+      )
+    ).reduce((sum, expense) => sum + expense.amount, 0);
+
+    const totalExpense = record.purchasePrice + animalExpenses + matchingExpenses;
+
+    // For bulk animals, calculate based on days in farm
+    if (record.isBulk) {
       const totalDays = record.individualAnimals?.reduce((sum, animal) => {
         if (animal.status === 'sold' && animal.soldDate) {
           const days = Math.floor((new Date(animal.soldDate).getTime() - new Date(record.purchaseDate).getTime()) / (1000 * 60 * 60 * 24));
@@ -120,19 +123,7 @@ export default function ReportsScreen() {
       if (totalDays === 0) return 0;
 
       // Calculate daily expense rate
-      const animalExpenses = Object.values(record.expenses || {}).reduce((sum: number, expense) => sum + (expense as {amount: number}).amount, 0);
-      const totalExpense = record.purchasePrice + animalExpenses;
-      
-      // Find matching expenses based on collection tags
-      const matchingExpenses = monthlyExpenses.filter(expense => {
-        return expense.tags && record.collectionNames.some(collectionName => 
-          expense.tags.includes(collectionName)
-        );
-      });
-
-      // Add matching expenses to total expense
-      const matchingExpensesTotal = matchingExpenses.reduce((sum, expense) => sum + expense.amount, 0);
-      const dailyExpenseRate = (totalExpense + matchingExpensesTotal) / totalDays;
+      const dailyExpenseRate = totalExpense / totalDays;
 
       // Calculate individual animal expenses
       return record.individualAnimals?.reduce((sum, animal) => {
@@ -143,6 +134,9 @@ export default function ReportsScreen() {
         return sum;
       }, 0) || 0;
     }
+
+    // For single animals, calculate based on days in farm
+    return daysInFarm * (totalExpense / daysInFarm);
   };
 
   const calculateStats = async () => {

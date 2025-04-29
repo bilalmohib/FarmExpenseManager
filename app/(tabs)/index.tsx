@@ -237,7 +237,7 @@ export default function HomeScreen() {
             onPress={() => router.push('/breeding')}
           >
             <View style={[styles.actionIconContainer, { backgroundColor: '#E91E63' }]}> 
-              <Ionicons name="leaf" size={32} color="#FFFFFF" />
+              <Ionicons name="paw" size={32} color="#FFFFFF" />
             </View>
             <Text style={styles.actionText}>Breeding</Text>
           </TouchableOpacity>
@@ -245,14 +245,24 @@ export default function HomeScreen() {
           {/* Load In/Out Button */}
           <TouchableOpacity 
             style={styles.actionButton}
-            onPress={() => router.push('/loading/loadInOut')}
+            onPress={() => router.push('/loading')}
           >
             <View style={[styles.actionIconContainer, { backgroundColor: '#795548' }]}> 
               <Ionicons name="swap-horizontal" size={32} color="#FFFFFF" />
             </View>
-            <Text style={styles.actionText}>Load In/Out</Text>
+            <Text style={styles.actionText}>Load In / Load Out</Text>
           </TouchableOpacity>
 
+          {/* Sale / Purchase Button */}
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => router.push('/sale')}
+          >
+            <View style={[styles.actionIconContainer, { backgroundColor: '#E91E63' }]}> 
+              <Ionicons name="cart-outline" size={32} color="#FFFFFF" />
+            </View>
+            <Text style={styles.actionText}>Sale / Purchase</Text>
+          </TouchableOpacity>
         </View>
       </View>
 

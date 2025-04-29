@@ -1,17 +1,17 @@
-// Firebase services file (not a route)
-// Use this file to import Firebase services in your components
+// Re-export all Firebase modules
+import { app, auth, db, storage } from '../../firebase/config';
 
-// Export config
-export { app, auth, db, storage } from '../../firebase/config';
-
-// Export auth services
+// Auth exports
 export * from '../../firebase/auth';
 
-// Export firestore services
+// Firestore exports
 export * from '../../firebase/firestore';
 
-// Export storage services
+// Storage exports
 export * from '../../firebase/storage';
+
+// Export config items
+export { app, auth, db, storage };
 
 // Mock Firebase implementation
 // This file simulates Firebase Authentication and other Firebase services

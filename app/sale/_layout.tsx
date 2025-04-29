@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 
-export default function LoadingLayout() {
+export default function ReportsLayout() {
   return (
     <Stack
       screenOptions={{
@@ -18,7 +18,7 @@ export default function LoadingLayout() {
       <Stack.Screen
         name="index"
         options={{
-          title: 'Load In / Load Out',
+          title: 'Sale / Purchase',
           headerLargeTitle: true,
         }}
       />

@@ -1,20 +1,27 @@
 import { Stack } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 
-export default function BreedingLayout() {
+export default function LoadingLayout() {
   return (
     <Stack
       screenOptions={{
-        headerShown: false, // Hide the default header
+        headerStyle: {
+          backgroundColor: Colors.light.tint,
+        },
+        headerTintColor: '#fff',
+        headerTitleStyle: {
+          fontWeight: 'bold',
+        },
+        animation: 'slide_from_right',
       }}
     >
       <Stack.Screen
         name="index"
         options={{
-          title: 'Breeding Analysis',
+          title: 'Breeding',
+          headerLargeTitle: true,
         }}
       />
-      {/* Add other breeding-related screens here if needed */}
     </Stack>
   );
 } 

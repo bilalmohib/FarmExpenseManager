@@ -92,23 +92,26 @@ export default function LoadInOut() {
   };
 
   const calculateAnimalExpense = (record: AnimalRecord, monthlyExpenses: MonthlyExpense[]) => {
-    if (!record.isBulk) {
-      // For single animals, calculate as before
-      const animalExpenses = Object.values(record.expenses || {}).reduce((sum: number, expense) => sum + (expense as {amount: number}).amount, 0);
-      const totalExpense = record.purchasePrice + animalExpenses;
-      
-      // Find matching expenses based on collection tags
-      const matchingExpenses = monthlyExpenses.filter(expense => {
-        return expense.tags && record.collectionNames.some(collectionName => 
-          expense.tags.includes(collectionName)
-        );
-      });
+    // Calculate days in farm
+    const daysInFarm = record.status === 'sold' && record.soldDate
+      ? Math.floor((new Date(record.soldDate).getTime() - new Date(record.purchaseDate).getTime()) / (1000 * 60 * 60 * 24))
+      : Math.floor((new Date().getTime() - new Date(record.purchaseDate).getTime()) / (1000 * 60 * 60 * 24));
 
-      // Add matching expenses to total expense
-      const matchingExpensesTotal = matchingExpenses.reduce((sum, expense) => sum + expense.amount, 0);
-      return totalExpense + matchingExpensesTotal;
-    } else {
-      // For bulk animals, calculate based on days in farm
+    // Calculate base expenses
+    const animalExpenses = Object.values(record.expenses || {}).reduce((sum: number, expense) => 
+      sum + (expense as {amount: number}).amount, 0);
+    
+    // Find matching expenses based on collection tags
+    const matchingExpenses = monthlyExpenses.filter(expense => 
+      expense.tags && record.collectionNames.some(collectionName => 
+        expense.tags.includes(collectionName)
+      )
+    ).reduce((sum, expense) => sum + expense.amount, 0);
+
+    const totalExpense = record.purchasePrice + animalExpenses + matchingExpenses;
+
+    // For bulk animals, calculate based on days in farm
+    if (record.isBulk) {
       const totalDays = record.individualAnimals?.reduce((sum, animal) => {
         if (animal.status === 'sold' && animal.soldDate) {
           const days = Math.floor((new Date(animal.soldDate).getTime() - new Date(record.purchaseDate).getTime()) / (1000 * 60 * 60 * 24));
@@ -120,19 +123,7 @@ export default function LoadInOut() {
       if (totalDays === 0) return 0;
 
       // Calculate daily expense rate
-      const animalExpenses = Object.values(record.expenses || {}).reduce((sum: number, expense) => sum + (expense as {amount: number}).amount, 0);
-      const totalExpense = record.purchasePrice + animalExpenses;
-      
-      // Find matching expenses based on collection tags
-      const matchingExpenses = monthlyExpenses.filter(expense => {
-        return expense.tags && record.collectionNames.some(collectionName => 
-          expense.tags.includes(collectionName)
-        );
-      });
-
-      // Add matching expenses to total expense
-      const matchingExpensesTotal = matchingExpenses.reduce((sum, expense) => sum + expense.amount, 0);
-      const dailyExpenseRate = (totalExpense + matchingExpensesTotal) / totalDays;
+      const dailyExpenseRate = totalExpense / totalDays;
 
       // Calculate individual animal expenses
       return record.individualAnimals?.reduce((sum, animal) => {
@@ -143,6 +134,9 @@ export default function LoadInOut() {
         return sum;
       }, 0) || 0;
     }
+
+    // For single animals, calculate based on days in farm
+    return daysInFarm * (totalExpense / daysInFarm);
   };
 
   const calculateStats = async () => {
@@ -169,8 +163,11 @@ export default function LoadInOut() {
         let loss = 0;
 
         if (record.status === 'sold') {
-          profit = salePrice > totalExpense ? salePrice - totalExpense : 0;
-          loss = salePrice < totalExpense ? totalExpense - salePrice : 0;
+          // Calculate based on expenses
+          const expectedExpense = salePrice; // Using sale price as expected expense
+          const actualExpense = totalExpense;
+          profit = expectedExpense > actualExpense ? expectedExpense - actualExpense : 0;
+          loss = expectedExpense < actualExpense ? actualExpense - expectedExpense : 0;
         }
 
         // Update animal stats
@@ -301,6 +298,104 @@ export default function LoadInOut() {
     };
   };
 
+  const getDayWiseData = () => {
+    const dayWiseData: Record<string, {
+      totalExpense: number;
+      totalSale: number;
+      profit: number;
+      loss: number;
+      animalCount: number;
+    }> = {};
+
+    records.forEach(record => {
+      const purchaseDate = new Date(record.purchaseDate);
+      const daysInFarm = record.individualAnimals?.map(animal => {
+        if (animal.status === 'sold' && animal.soldDate) {
+          const soldDate = new Date(animal.soldDate);
+          return Math.floor((soldDate.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24));
+        }
+        return Math.floor((new Date().getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24));
+      }) || [Math.floor((new Date().getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24))];
+
+      daysInFarm.forEach(days => {
+        if (!dayWiseData[days]) {
+          dayWiseData[days] = {
+            totalExpense: 0,
+            totalSale: 0,
+            profit: 0,
+            loss: 0,
+            animalCount: 0
+          };
+        }
+
+        const dailyData = dayWiseData[days];
+        dailyData.totalExpense += record.purchasePrice;
+        if (record.status === 'sold') {
+          dailyData.totalSale += record.sellingPrice || 0;
+          const profit = (record.sellingPrice || 0) - record.purchasePrice;
+          if (profit > 0) {
+            dailyData.profit += profit;
+          } else {
+            dailyData.loss += Math.abs(profit);
+          }
+        }
+        dailyData.animalCount += record.isBulk ? record.quantity : 1;
+      });
+    });
+
+    return Object.entries(dayWiseData)
+      .sort(([a], [b]) => parseInt(a) - parseInt(b))
+      .map(([days, data]) => ({
+        days: parseInt(days),
+        ...data
+      }));
+  };
+
+  const renderDayWiseStats = () => {
+    const dayWiseData = getDayWiseData();
+    
+    return (
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Ionicons name="calendar" size={20} color={Colors.light.tint} />
+          <Text style={styles.sectionTitle}>Day-wise Statistics</Text>
+        </View>
+        
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.dayWiseContainer}>
+            {dayWiseData.map((data, index) => (
+              <View key={index} style={styles.dayWiseCard}>
+                <Text style={styles.dayWiseTitle}>Day {data.days}</Text>
+                <View style={styles.dayWiseStats}>
+                  <View style={styles.dayWiseStat}>
+                    <Text style={styles.dayWiseLabel}>Animals</Text>
+                    <Text style={styles.dayWiseValue}>{data.animalCount}</Text>
+                  </View>
+                  <View style={styles.dayWiseStat}>
+                    <Text style={styles.dayWiseLabel}>Expense</Text>
+                    <Text style={styles.dayWiseValue}>{formatCurrency(data.totalExpense)}</Text>
+                  </View>
+                  <View style={styles.dayWiseStat}>
+                    <Text style={styles.dayWiseLabel}>Load In / Load Out</Text>
+                    <Text style={styles.dayWiseValue}>{formatCurrency(data.totalSale)}</Text>
+                  </View>
+                  <View style={styles.dayWiseStat}>
+                    <Text style={styles.dayWiseLabel}>Profit</Text>
+                    <Text style={[styles.dayWiseValue, styles.profitText]}>{formatCurrency(data.profit)}</Text>
+                  </View>
+                  <View style={styles.dayWiseStat}>
+                    <Text style={styles.dayWiseLabel}>Loss</Text>
+                    <Text style={[styles.dayWiseValue, styles.lossText]}>{formatCurrency(data.loss)}</Text>
+                  </View>
+                </View>
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      </View>
+    );
+  };
+
   const renderCollectionStats = () => {
     return Object.entries(stats.collections).map(([name, data]) => (
       <View key={name} style={styles.collectionCard}>
@@ -312,7 +407,7 @@ export default function LoadInOut() {
             <Text style={styles.statValue}>{formatCurrency(data.totalExpense)}</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Total Sale</Text>
+            <Text style={styles.statLabel}>Load In / Load Out</Text>
             <Text style={styles.statValue}>{formatCurrency(data.totalSale)}</Text>
           </View>
           <View style={styles.statItem}>
@@ -353,7 +448,7 @@ export default function LoadInOut() {
               <Text style={styles.statValue}>{formatCurrency(data.totalExpense)}</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Sale Price</Text>
+              <Text style={styles.statLabel}>Load In / Out Price</Text>
               <Text style={styles.statValue}>{formatCurrency(data.salePrice)}</Text>
             </View>
             {data.status === 'sold' && (
@@ -411,6 +506,7 @@ export default function LoadInOut() {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {renderDayWiseStats()}
         <View style={styles.overallStats}>
           <View style={styles.sectionHeader}>
             <Ionicons name="analytics" size={20} color={Colors.light.tint} />
@@ -423,7 +519,7 @@ export default function LoadInOut() {
                 <Text style={styles.statBoxValue}>{formatCurrency(stats.totalExpense)}</Text>
               </View>
               <View style={styles.statBox}>
-                <Text style={styles.statBoxLabel}>Total Sale</Text>
+                <Text style={styles.statBoxLabel}>Load In / Load Out</Text>
                 <Text style={styles.statBoxValue}>{formatCurrency(stats.totalSale)}</Text>
               </View>
               <View style={styles.statBox}>
@@ -449,22 +545,6 @@ export default function LoadInOut() {
               )}
             </View>
           </View>
-
-          {getProfitLossChartData().length > 0 && (
-            <View style={styles.chartContainer}>
-              <Text style={styles.chartTitle}>Profit vs Loss</Text>
-              <PieChart
-                data={getProfitLossChartData()}
-                width={screenWidth - 48}
-                height={200}
-                chartConfig={chartConfig}
-                accessor="value"
-                backgroundColor="transparent"
-                paddingLeft="15"
-                absolute
-              />
-            </View>
-          )}
         </View>
 
         <View style={styles.collectionsStats}>
@@ -472,31 +552,6 @@ export default function LoadInOut() {
             <Ionicons name="folder-open" size={20} color={Colors.light.tint} />
             <Text style={styles.sectionTitle}>Collection Statistics</Text>
           </View>
-          
-          {Object.keys(stats.collections).length > 0 && (
-            <View style={styles.chartContainer}>
-              <Text style={styles.chartTitle}>Collection Performance</Text>
-              <BarChart
-                data={getCollectionChartData()}
-                width={screenWidth - 48}
-                height={220}
-                yAxisLabel="₹"
-                yAxisSuffix=""
-                chartConfig={{
-                  backgroundColor: '#ffffff',
-                  backgroundGradientFrom: '#ffffff',
-                  backgroundGradientTo: '#ffffff',
-                  decimalPlaces: 0,
-                  color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`,
-                  labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-                  barPercentage: 0.5,
-                }}
-                verticalLabelRotation={30}
-                fromZero={true}
-              />
-            </View>
-          )}
-          
           {renderCollectionStats()}
         </View>
 
@@ -505,30 +560,6 @@ export default function LoadInOut() {
             <Ionicons name="paw" size={20} color={Colors.light.tint} />
             <Text style={styles.sectionTitle}>Animal Statistics</Text>
           </View>
-          
-          {getAnimalChartData() && (
-            <View style={styles.chartContainer}>
-              <Text style={styles.chartTitle}>Animal Profit/Loss</Text>
-              <LineChart
-                data={getAnimalChartData()}
-                width={screenWidth - 48}
-                height={220}
-                yAxisLabel="₹"
-                yAxisSuffix=""
-                chartConfig={{
-                  backgroundColor: '#ffffff',
-                  backgroundGradientFrom: '#ffffff',
-                  backgroundGradientTo: '#ffffff',
-                  decimalPlaces: 0,
-                  color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`,
-                  labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-                }}
-                verticalLabelRotation={30}
-                fromZero={true}
-              />
-            </View>
-          )}
-          
           {renderAnimalStats()}
         </View>
         
@@ -777,5 +808,48 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 24
+  },
+  dayWiseContainer: {
+    flexDirection: 'row',
+    padding: 16,
+  },
+  dayWiseCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginRight: 12,
+    width: 280,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  dayWiseTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333333',
+    marginBottom: 12,
+  },
+  dayWiseStats: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  dayWiseStat: {
+    width: '50%',
+    marginBottom: 12,
+  },
+  dayWiseLabel: {
+    fontSize: 12,
+    color: '#666666',
+    marginBottom: 4,
+  },
+  dayWiseValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333333',
+  },
+  section: {
+    marginBottom: 24,
   }
 });

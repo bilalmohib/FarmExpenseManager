@@ -78,7 +78,6 @@ export default function RootLayout() {
         <Stack.Screen name="expenses" />
         <Stack.Screen name="records" />
         <Stack.Screen name="reports" />
-        <Stack.Screen name="routes-test" options={{ headerShown: true, title: "Routes Test" }} />
       </Stack>
     </ClerkProvider>
   );
