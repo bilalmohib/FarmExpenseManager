@@ -1,17 +1,17 @@
 import React from 'react';
 import { Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { useClerk } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { auth } from '../../firebase/config';
+import { signOut } from 'firebase/auth';
 
 export default function SignOutButton() {
-  const { signOut } = useClerk();
   const router = useRouter();
 
   const handleSignOut = async () => {
     try {
-      await signOut();
-      router.replace('/login');
+      await signOut(auth);
+      router.replace('/(auth)/login');
     } catch (err) {
       console.error('Sign out error:', err);
     }
@@ -29,14 +29,16 @@ const styles = StyleSheet.create({
   button: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#e74c3c',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 6,
+    backgroundColor: '#ff4444',
+    padding: 12,
+    borderRadius: 8,
+    marginHorizontal: 16,
+    marginBottom: 16,
   },
   text: {
     color: '#fff',
-    fontWeight: '500',
-    marginLeft: 6,
+    marginLeft: 8,
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 }); 

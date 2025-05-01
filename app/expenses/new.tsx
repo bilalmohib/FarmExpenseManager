@@ -19,6 +19,7 @@ import {
   getMonthlyExpenseById,
   updateMonthlyExpense
 } from '../../firebase/firestore';
+import { auth } from '@/firebase';
 
 export default function ExpenseFormScreen() {
   const router = useRouter();
@@ -102,6 +103,9 @@ export default function ExpenseFormScreen() {
           month,
           year,
           date: new Date().toISOString(),
+          tags: [],
+          group: '',
+          userId: auth.currentUser?.uid,
         });
       }
       

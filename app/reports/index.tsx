@@ -58,6 +58,7 @@ interface ReportStats {
 
 export default function ReportsScreen() {
   const [loading, setLoading] = useState(true);
+  const [calculating, setCalculating] = useState(false);
   const [records, setRecords] = useState<AnimalRecord[]>([]);
   const [stats, setStats] = useState<ReportStats>({
     totalExpense: 0,
@@ -69,15 +70,34 @@ export default function ReportsScreen() {
   });
   const [selectedPeriod, setSelectedPeriod] = useState<'month' | 'year' | 'all'>('all');
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
+  const [filteredRecords, setFilteredRecords] = useState<AnimalRecord[]>([]);
 
   useEffect(() => {
     loadRecords();
   }, []);
 
   useEffect(() => {
-    calculateStats();
+    const calculate = async () => {
+      setCalculating(true);
+      await calculateStats();
+      setCalculating(false);
+    };
+    calculate();
   }, [records, selectedPeriod]);
 
+  const isWithinSelectedPeriod = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+  
+    if (selectedPeriod === 'month') {
+      return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+    } else if (selectedPeriod === 'year') {
+      return date.getFullYear() === now.getFullYear();
+    }
+  
+    return true; // For 'all'
+  };
+  
   const loadRecords = async () => {
     try {
       setLoading(true);
@@ -148,26 +168,30 @@ export default function ReportsScreen() {
       collections: {},
       animals: {}
     };
-
+  
     try {
-      // Get all monthly expenses
       const monthlyExpenses = await getMonthlyExpenses();
-
-      records.forEach(record => {
-        // Calculate total expenses for the animal
+  
+      const filteredRecords = records.filter(record => {
+        const relevantDate = record.status === 'sold' && record.soldDate
+          ? record.soldDate
+          : record.purchaseDate;
+  
+        return isWithinSelectedPeriod(relevantDate);
+      });
+  
+      filteredRecords.forEach(record => {
         const totalExpense = calculateAnimalExpense(record, monthlyExpenses);
         const salePrice = record.sellingPrice || 0;
-
-        // Calculate profit/loss for the animal only if it's sold
+  
         let profit = 0;
         let loss = 0;
-
+  
         if (record.status === 'sold') {
           profit = salePrice > totalExpense ? salePrice - totalExpense : 0;
           loss = salePrice < totalExpense ? totalExpense - salePrice : 0;
         }
-
-        // Update animal stats
+  
         newStats.animals[record.id] = {
           totalExpense,
           salePrice,
@@ -175,8 +199,7 @@ export default function ReportsScreen() {
           loss,
           status: record.status || 'unsold'
         };
-
-        // Update collection stats
+  
         record.collectionNames.forEach(collectionName => {
           if (!newStats.collections[collectionName]) {
             newStats.collections[collectionName] = {
@@ -188,7 +211,7 @@ export default function ReportsScreen() {
               animals: []
             };
           }
-
+  
           const collection = newStats.collections[collectionName];
           collection.totalExpense += totalExpense;
           collection.totalSale += salePrice;
@@ -201,21 +224,20 @@ export default function ReportsScreen() {
             loss
           });
         });
-
-        // Update overall stats
+  
         newStats.totalExpense += totalExpense;
         newStats.totalSale += salePrice;
         newStats.profit += profit;
         newStats.loss += loss;
       });
-
+  
       setStats(newStats);
     } catch (error) {
       console.error('Error calculating stats:', error);
       Alert.alert('Error', 'Failed to calculate statistics');
     }
   };
-
+  
   const formatCurrency = (amount: number) => {
     return `₹${Math.abs(amount).toFixed(2)}`;
   };

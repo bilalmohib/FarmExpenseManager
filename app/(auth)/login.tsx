@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,8 +13,10 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useSignIn, useOAuth } from '@clerk/clerk-expo';
+import { auth } from '../../firebase/config';
+import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithCredential, onAuthStateChanged } from 'firebase/auth';
 import * as WebBrowser from 'expo-web-browser';
+import * as Google from 'expo-auth-session/providers/google';
 import GoogleButton from '../components/GoogleButton';
 
 // Import needed for OAuth deep linking
@@ -26,8 +28,25 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [secureTextEntry, setSecureTextEntry] = useState(true);
   const router = useRouter();
-  const { signIn, setActive, isLoaded } = useSignIn();
-  const { startOAuthFlow } = useOAuth({ strategy: "oauth_google" });
+
+  // // Add auth state listener
+  // useEffect(() => {
+  //   const unsubscribe = onAuthStateChanged(auth, (user) => {
+  //     if (user) {
+  //       // User is signed in
+  //       console.log('User is already logged in:', user);
+  //       // Check if user is admin based on email
+  //       if (user.email === 'ammarmohib09@gmail.com') {
+  //         router.replace('/admin/dashboard');
+  //       } else {
+  //         router.replace('/(tabs)');
+  //       }
+  //     }
+  //   });
+
+  //   // Cleanup subscription on unmount
+  //   return () => unsubscribe();
+  // }, []);
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -35,6 +54,7 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
+    console.log('handleLogin');
     // Validate inputs
     if (!email.trim() || !password.trim()) {
       Alert.alert('Validation Error', 'Please enter both email and password');
@@ -53,39 +73,26 @@ export default function LoginScreen() {
 
     try {
       setLoading(true);
-      if (!signIn) {
-        throw new Error("signIn is undefined");
-      }
-
-      // Attempt to sign in with email/password
-      const signInAttempt = await signIn.create({
-        identifier: email.trim(),
-        password: password,
-      });
-
-      if (signInAttempt.status === 'complete') {
-        // If the sign-in is complete, set the session as active
-        if (setActive) {
-          await setActive({ session: signInAttempt.createdSessionId });
-          router.replace('/(tabs)');
-        } else {
-          console.error("setActive is undefined");
-        }
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      console.log('User is logged in:', user);
+      // Check if user is admin based on email
+      if (user.email === 'ammarmohib09@gmail.com') {
+        router.replace('/(tabs)');
       } else {
-        console.log('Sign in status:', signInAttempt.status);
-        console.log('Next step:', signInAttempt.firstFactorVerification);
-
-        // Handle multi-factor authentication or other steps here
-        Alert.alert('Login Status', 'Additional verification steps may be required.');
+        console.log('User is not admin, redirecting to tabs');
+        router.replace('/(tabs)');
       }
     } catch (error: any) {
       let errorMessage = 'An error occurred during login';
-
-      // Handle Clerk-specific error codes
-      if (error.errors && error.errors.length > 0) {
-        errorMessage = error.errors[0].message || errorMessage;
+      
+      // Handle Firebase-specific error codes
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+        errorMessage = 'Invalid email or password';
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many failed attempts. Please try again later.';
       }
-
+      
       Alert.alert('Login Failed', errorMessage);
       console.error('Login error:', error);
     } finally {
@@ -93,30 +100,11 @@ export default function LoginScreen() {
     }
   };
 
-  const handleGoogleLogin = useCallback(async () => {
-    try {
-      setLoading(true);
-      const { createdSessionId, setActive } = await startOAuthFlow();
-      if (createdSessionId) {
-        if (setActive) {
-          await setActive({ session: createdSessionId });
-          router.replace('/(tabs)');
-        } else {
-          console.error("setActive is undefined");
-        }
-      }
-    } catch (err) {
-      console.error("OAuth error", err);
-      Alert.alert("Error signing in with Google", "Please try again");
-    } finally {
-      setLoading(false);
-    }
-  }, [startOAuthFlow]);
   const handleRegister = () => {
     router.push('/register');
   };
+
   const handleForgotPassword = () => {
-    // router.push('/(auth)/forgot-password');
     Alert.alert('Forgot Password', 'Please contact support to reset your password');
   };
 
@@ -184,7 +172,7 @@ export default function LoginScreen() {
               (!email.trim() || !password.trim()) && styles.loginButtonDisabled
             ]}
             onPress={handleLogin}
-            disabled={loading || !email.trim() || !password.trim() || !isLoaded}
+            disabled={loading || !email.trim() || !password.trim()}
           >
             {loading ? (
               <ActivityIndicator color="#fff" />
@@ -193,17 +181,18 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
 
-          <View style={styles.orContainer}>
+          {/* <View style={styles.orContainer}>
             <View style={styles.divider} />
             <Text style={styles.orText}>OR</Text>
             <View style={styles.divider} />
           </View>
 
           <GoogleButton 
-            onPress={handleGoogleLogin}
+            // onPress={handleGoogleLogin}
+            onPress={() => {}}
             loading={loading}
             text="Continue with Google"
-          />
+          /> */}
 
           <View style={styles.registerContainer}>
             <Text style={styles.registerText}>Don't have an account?</Text>
@@ -220,62 +209,54 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f7f9fc',
+    backgroundColor: '#fff',
   },
   scrollContent: {
     flexGrow: 1,
-    padding: 20,
-    paddingTop: 60,
+    justifyContent: 'center',
   },
   logoContainer: {
     alignItems: 'center',
     marginBottom: 40,
   },
   logo: {
-    marginBottom: 10,
+    marginBottom: 16,
   },
   title: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#2c3e50',
-    marginBottom: 5,
+    marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
     color: '#7f8c8d',
   },
   formContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    paddingHorizontal: 24,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderColor: '#e0e0e0',
-    marginBottom: 20,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    marginBottom: 16,
+    paddingHorizontal: 12,
   },
   inputIcon: {
-    marginRight: 10,
+    marginRight: 12,
   },
   input: {
     flex: 1,
-    height: 50,
+    height: 48,
     color: '#2c3e50',
-    fontSize: 16,
   },
   eyeIcon: {
-    padding: 10,
+    padding: 8,
   },
   forgotPassword: {
     alignSelf: 'flex-end',
-    marginBottom: 20,
+    marginBottom: 24,
   },
   forgotPasswordText: {
     color: '#3498db',
@@ -283,24 +264,24 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     backgroundColor: '#27ae60',
+    height: 48,
     borderRadius: 8,
-    height: 50,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 24,
+  },
+  loginButtonDisabled: {
+    opacity: 0.7,
   },
   loginButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
   },
-  loginButtonDisabled: {
-    backgroundColor: '#95a5a6',
-  },
   orContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 15,
+    marginBottom: 24,
   },
   divider: {
     flex: 1,
@@ -308,23 +289,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#e0e0e0',
   },
   orText: {
-    marginHorizontal: 10,
+    marginHorizontal: 16,
     color: '#7f8c8d',
     fontSize: 14,
   },
   registerContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 15,
+    marginTop: 24,
   },
   registerText: {
     color: '#7f8c8d',
     fontSize: 14,
   },
   registerLink: {
-    color: '#3498db',
-    fontWeight: 'bold',
+    color: '#27ae60',
     fontSize: 14,
-    marginLeft: 5,
+    fontWeight: 'bold',
+    marginLeft: 4,
   },
 }); 

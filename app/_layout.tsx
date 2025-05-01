@@ -1,36 +1,59 @@
 import React, { useEffect, useState } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { View, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { ClerkProvider, useAuth } from '@clerk/clerk-expo';
-import { tokenCache } from './lib/clerk-token-cache';
-import Constants from 'expo-constants';
+import { UserProvider, useUser } from '../contexts/UserContext';
+import { auth } from '../firebase/config';
+import { onAuthStateChanged } from 'firebase/auth';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
-// Get redirectUrl based on environment
-const getRedirectUrl = () => {
-  // For standalone apps
-  const scheme = Constants.expoConfig?.scheme;
-  if (scheme) {
-    return `${scheme}://`;
-  }
-  
-  // For Expo Go
-  const hostUri = Constants.expoConfig?.hostUri;
-  if (hostUri) {
-    return `exp://${hostUri}/--/`;
-  }
-  
-  return "myapp://";
-};
+const styles = StyleSheet.create({
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    color: 'red',
+    textAlign: 'center',
+  },
+});
+
+function useProtectedRoute() {
+  const { user, loading } = useUser();
+  const segments = useSegments();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading) return;
+
+    const inAuthGroup = segments[0] === '(auth)';
+    const inAdminGroup = segments[0] === 'admin';
+
+    if (!user && !inAuthGroup) {
+      // Redirect to login if not authenticated
+      router.replace('/(auth)/login');
+    } else if (user && inAuthGroup) {
+      // Redirect to dashboard if authenticated and trying to access auth screens
+      if (user.permissions.isAdmin) {
+        router.replace('/admin/dashboard');
+      } else {
+        router.replace('/dashboard');
+      }
+    } else if (user && inAdminGroup && !user.permissions.isAdmin) {
+      // Redirect to dashboard if non-admin trying to access admin screens
+      router.replace('/dashboard');
+    }
+  }, [user, loading, segments]);
+}
 
 export default function RootLayout() {
   const [appIsReady, setAppIsReady] = useState(false);
-  const clerkPubKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
   useEffect(() => {
     async function prepare() {
@@ -55,21 +78,8 @@ export default function RootLayout() {
     return null; // This will show the native splash screen
   }
 
-  if (!clerkPubKey) {
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>
-          Missing Clerk Publishable Key. Please add it to your .env file.
-        </Text>
-      </View>
-    );
-  }
-
   return (
-    <ClerkProvider 
-      publishableKey={clerkPubKey}
-      tokenCache={tokenCache}
-    >
+    <UserProvider>
       <StatusBar style="auto" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />
@@ -79,51 +89,6 @@ export default function RootLayout() {
         <Stack.Screen name="records" />
         <Stack.Screen name="reports" />
       </Stack>
-    </ClerkProvider>
+    </UserProvider>
   );
 }
-
-// This component renders on top of the auth and tab navigators
-// and checks if the user is authenticated
-export function App({ children }: { children: React.ReactNode }) {
-  const { isLoaded, isSignedIn } = useAuth();
-
-  if (!isLoaded) {
-    // Display custom loading screen
-    return (
-      <View style={styles.loadingContainer}>
-        <Ionicons name="leaf" size={120} color="#27ae60" />
-        <Text style={styles.loadingText}>Loading...</Text>
-      </View>
-    );
-  }
-
-  return children;
-}
-
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F7F9FC',
-  },
-  loadingText: {
-    fontSize: 18,
-    color: '#27ae60',
-    fontWeight: '500',
-    marginTop: 20,
-  },
-  errorContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F7F9FC',
-    padding: 20,
-  },
-  errorText: {
-    fontSize: 18,
-    color: 'red',
-    textAlign: 'center',
-  }
-});

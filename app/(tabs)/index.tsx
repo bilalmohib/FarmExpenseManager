@@ -4,57 +4,161 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
 import { getAllAnimalRecords, getMonthlyExpense } from '../../firebase/firestore';
-import { useUser } from '@clerk/clerk-expo';
+import { auth, db } from '../../firebase/config';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
 import SignOutButton from '../components/SignOutButton';
 
-export default function HomeScreen() {
-  
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({
+interface Permissions {
+  canCreateExpense?: boolean;
+  canCreateInvoice?: boolean;
+  canManageAnimals?: boolean;
+  canManageCollections?: boolean;
+  canManageUsers?: boolean;
+  canViewMonthlyProfit?: boolean;
+  [key: string]: boolean | undefined;
+}
+
+interface UserData {
+  fullName: string;
+  lastName: string;
+  firstName: string;
+  name?: string;
+  permissions?: Permissions;
+  admin?: boolean;
+}
+
+interface AnimalRecord {
+  purchaseDate: string;
+  profit?: number;
+  loss?: number;
+}
+
+interface Stats {
+  activeAnimals: number;
+  monthlyProfitLoss: number;
+  monthlyExpenseEntered: boolean;
+}
+
+const HomeScreen: React.FC = () => {
+  const [loading, setLoading] = useState<boolean>(true);
+  const [user, setUser] = useState<User | null>(null);
+  const [permissions, setPermissions] = useState<Permissions>({});
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [userName, setUserName] = useState<string>('Farmer');
+  const [stats, setStats] = useState<Stats>({
     activeAnimals: 0,
     monthlyProfitLoss: 0,
     monthlyExpenseEntered: false,
   });
-  const { user, isLoaded } = useUser();
+
   const router = useRouter();
 
   useEffect(() => {
-    if (isLoaded) {
-      // Load dashboard data
-      loadDashboardData();
-    }
-  }, [isLoaded]);
+    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        
+        // Get reference to users collection
+        const usersCollectionRef = collection(db, 'users');
+        
+        // Create a query to find the user with matching email
+        const q = query(usersCollectionRef, where('email', '==', currentUser.email));
+        
+        // Set up listener for query results
+        const unsubscribeUser = onSnapshot(q, (querySnapshot) => {
+          if (!querySnapshot.empty) {
+            // Get first matching user document
+            const userDoc = querySnapshot.docs[0];
+            const userData = userDoc.data() as UserData;
+            
+            // Correctly set user name from Firestore
+            // setUserName(userData.fullName || 'Farmer');
+            
+            // // Correctly set user permissions from Firestore
+            // setPermissions(userData.permissions || {});
+            // setIsAdmin(userData.admin || false);
+            
+            // console.log("User data loaded:", userData);
+            // console.log("Permissions:", userData.permissions);
+            const isSuperAdmin = userData.admin === true || currentUser.email === 'ammarmohib09@gmail.com';
+console.log("Is super admin:", isSuperAdmin);
+const fullPermissions: Permissions = {
+  canCreateExpense: true,
+  canCreateInvoice: true,
+  canManageAnimals: true,
+  canManageCollections: true,
+  canManageUsers: true,
+  canViewMonthlyProfit: true,
+};
+
+setUserName(userData.fullName || 'Farmer');
+setIsAdmin(isSuperAdmin);
+setPermissions(isSuperAdmin ? fullPermissions : (userData.permissions || {}));
+
+          } else {
+            console.log("No user found with email:", currentUser.email);
+            // Set default values if no matching user found
+            const isSuperAdmin = currentUser.email === 'ammarmohib09@gmail.com';
+console.log("Is super admin:", isSuperAdmin);
+const fullPermissions: Permissions = {
+  canCreateExpense: true,
+  canCreateInvoice: true,
+  canManageAnimals: true,
+  canManageCollections: true,
+  canManageUsers: true,
+  canViewMonthlyProfit: true,
+};
+
+// setUserName(userData.fullName || 'Farmer');
+setIsAdmin(isSuperAdmin);
+setPermissions(isSuperAdmin ? fullPermissions : permissions);
+console.log("Permissions:", permissions);
+            // setUserName(currentUser.displayName || 'Farmer');
+            // setPermissions({});
+            // setIsAdmin(false);
+          }
+          
+          // Load dashboard data after attempting to get user information
+          loadDashboardData();
+        });
+
+        return () => unsubscribeUser();
+      } else {
+        setUser(null);
+        setUserName('Farmer');
+        setPermissions({});
+        setIsAdmin(false);
+        setLoading(false);
+      }
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
 
   const loadDashboardData = async () => {
     try {
       setLoading(true);
-
-      // Get current month for expense check
       const currentDate = new Date();
       const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-      
-      // Get all animal records
-      const records = await getAllAnimalRecords();
-      console.log("records",records.length);
-      // Get monthly expense
+
+      const records: AnimalRecord[] = await getAllAnimalRecords();
       const monthlyExpense = await getMonthlyExpense(currentMonthStr);
 
-      // Calculate active animals (those without sale date)
-      const activeAnimals = records.length;
-      
-      // Calculate total profit/loss for current month
       const currentMonthRecords = records.filter(record => {
         const purchaseDate = new Date(record.purchaseDate);
-        return purchaseDate.getMonth() === currentDate.getMonth() &&
-               purchaseDate.getFullYear() === currentDate.getFullYear();
+        return (
+          purchaseDate.getMonth() === currentDate.getMonth() &&
+          purchaseDate.getFullYear() === currentDate.getFullYear()
+        );
       });
-      
+
       const profitLoss = currentMonthRecords.reduce((total, record) => {
         return total + (record.profit || 0) - (record.loss || 0);
       }, 0);
 
       setStats({
-        activeAnimals,
+        activeAnimals: records.length,
         monthlyProfitLoss: profitLoss,
         monthlyExpenseEntered: monthlyExpense !== null,
       });
@@ -69,41 +173,34 @@ export default function HomeScreen() {
     return `₹${amount.toFixed(2)}`;
   };
 
-  const getTimeOfDay = () => {
+  const getTimeOfDay = (): string => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good Morning';
     if (hour < 17) return 'Good Afternoon';
     return 'Good Evening';
   };
 
-  if (!isLoaded || loading) {
+  if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.light.tint} />
-        <Text style={styles.loadingText}>Loading your dashboard...</Text>
+        <Text style={styles.loadingText}>Loading Dashboard...</Text>
       </View>
     );
   }
 
-  // Extract user's first name or username
-  const userName = user?.firstName || user?.username || 'Farmer';
-
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Image 
-          source={require('../../assets/images/icon.png')} 
-          style={styles.logo}
-          resizeMode="contain"
-        />
+        <Image source={require('../../assets/images/icon.png')} style={styles.logo} resizeMode="contain" />
         <Text style={styles.title}>Farm Expense Manager</Text>
       </View>
-      {/* Welcome Section */}
+
       <View style={styles.welcomeSection}>
         <View style={styles.welcomeHeader}>
           <View>
             <Text style={styles.welcomeText}>{getTimeOfDay()},</Text>
-            <Text style={styles.nameText}>{userName}!</Text>
+            <Text style={styles.nameText}>{userName}</Text>
             <Text style={styles.dateText}>{new Date().toDateString()}</Text>
           </View>
           <SignOutButton />
@@ -112,181 +209,199 @@ export default function HomeScreen() {
 
       {/* Summary Cards */}
       <View style={styles.cardsContainer}>
-        {/* Active Animals Card */}
-        <TouchableOpacity 
-          style={styles.card}
-          onPress={() => router.push('/records')}
-        >
-          <View style={styles.cardIconContainer}>
-            <Ionicons name="paw" size={28} color={Colors.light.tint} />
-          </View>
-          <Text style={styles.cardLabel}>Active Animals</Text>
-          <Text style={styles.cardValue}>{stats.activeAnimals}</Text>
-        </TouchableOpacity>
-
-        {/* Monthly Profit/Loss Card */}
-        <TouchableOpacity 
-          style={styles.card}
-          onPress={() => router.push('/reports')}
-        >
-          <View style={styles.cardIconContainer}>
-            <Ionicons 
-              name={stats.monthlyProfitLoss >= 0 ? "trending-up" : "trending-down"} 
-              size={28} 
-              color={stats.monthlyProfitLoss >= 0 ? '#4CAF50' : '#F44336'} 
-            />
-          </View>
-          <Text style={styles.cardLabel}>Monthly {stats.monthlyProfitLoss >= 0 ? 'Profit' : 'Loss'}</Text>
-          <Text 
-            style={[
-              styles.cardValue, 
-              stats.monthlyProfitLoss >= 0 ? styles.profitText : styles.lossText
-            ]}
+        {/* Only show Animal Records card if user has permission */}
+        {permissions.canManageAnimals && (
+          <TouchableOpacity 
+            style={styles.card}
+            onPress={() => router.push('/records')}
           >
-            {formatCurrency(Math.abs(stats.monthlyProfitLoss))}
-          </Text>
-        </TouchableOpacity>
+            <View style={styles.cardIconContainer}>
+              <Ionicons name="paw" size={28} color={Colors.light.tint} />
+            </View>
+            <Text style={styles.cardLabel}>Active Animals</Text>
+            <Text style={styles.cardValue}>{stats.activeAnimals}</Text>
+          </TouchableOpacity>
+        )}
 
-        {/* Monthly Expense Card */}
-        <TouchableOpacity 
-          style={styles.card}
-          onPress={() => router.push('/expenses')}
-        >
-          <View style={styles.cardIconContainer}>
-            <Ionicons 
-              name={stats.monthlyExpenseEntered ? "checkmark-circle" : "alert-circle"} 
-              size={28} 
-              color={stats.monthlyExpenseEntered ? '#4CAF50' : '#FF9800'} 
-            />
-          </View>
-          <Text style={styles.cardLabel}>Monthly Expense</Text>
-          <Text 
-            style={[
-              styles.cardValue, 
-              stats.monthlyExpenseEntered ? styles.expenseEnteredText : styles.expenseMissingText
-            ]}
+        {/* Only show Monthly Profit card if user has permission */}
+        {permissions.canViewMonthlyProfit && (
+          <TouchableOpacity 
+            style={styles.card}
+            onPress={() => router.push('/reports')}
           >
-            {stats.monthlyExpenseEntered ? 'Entered' : 'Missing!'}
-          </Text>
-        </TouchableOpacity>
+            <View style={styles.cardIconContainer}>
+              <Ionicons 
+                name={stats.monthlyProfitLoss >= 0 ? "trending-up" : "trending-down"} 
+                size={28} 
+                color={stats.monthlyProfitLoss >= 0 ? '#4CAF50' : '#F44336'} 
+              />
+            </View>
+            <Text style={styles.cardLabel}>
+              Monthly {stats.monthlyProfitLoss >= 0 ? 'Profit' : 'Loss'}
+            </Text>
+            <Text 
+              style={[
+                styles.cardValue, 
+                stats.monthlyProfitLoss >= 0 ? styles.profitText : styles.lossText
+              ]}
+            >
+              {formatCurrency(Math.abs(stats.monthlyProfitLoss))}
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Only show Monthly Expense card if user has permission */}
+        {permissions.canCreateExpense && (
+          <TouchableOpacity 
+            style={styles.card}
+            onPress={() => router.push('/expenses')}
+          >
+            <View style={styles.cardIconContainer}>
+              <Ionicons 
+                name={stats.monthlyExpenseEntered ? "checkmark-circle" : "alert-circle"} 
+                size={28} 
+                color={stats.monthlyExpenseEntered ? '#4CAF50' : '#FF9800'} 
+              />
+            </View>
+            <Text style={styles.cardLabel}>Monthly Expense</Text>
+            <Text 
+              style={[
+                styles.cardValue, 
+                stats.monthlyExpenseEntered ? styles.expenseEnteredText : styles.expenseMissingText
+              ]}
+            >
+              {stats.monthlyExpenseEntered ? 'Entered' : 'Missing!'}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Quick Actions */}
       <View style={styles.actionsContainer}>
         <Text style={styles.sectionTitle}>Quick Actions</Text>
-        
+
         <View style={styles.actionButtons}>
-          {/* Add Record Button */}
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => router.push('/records/new')}
-          >
-            <View style={styles.actionIconContainer}>
-              <Ionicons name="add-circle" size={32} color="#FFFFFF" />
-            </View>
-            <Text style={styles.actionText}>Add Record</Text>
-          </TouchableOpacity>
+          {/* Add Record Button - Only show if user has permission */}
+          {permissions.canManageAnimals && (
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/records/new')}
+            >
+              <View style={styles.actionIconContainer}>
+                <Ionicons name="add-circle" size={32} color="#FFFFFF" />
+              </View>
+              <Text style={styles.actionText}>Add Record</Text>
+            </TouchableOpacity>
+          )}
 
-          {/* View Records Button */}
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => router.push('/records')}
-          >
-            <View style={[styles.actionIconContainer, { backgroundColor: '#FF9800' }]}>
-              <Ionicons name="list" size={32} color="#FFFFFF" />
-            </View>
-            <Text style={styles.actionText}>View Records</Text>
-          </TouchableOpacity>
+          {/* View Records Button - Only show if user has permission */}
+          {permissions.canManageAnimals && (
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/records')}
+            >
+              <View style={[styles.actionIconContainer, { backgroundColor: '#FF9800' }]}>
+                <Ionicons name="list" size={32} color="#FFFFFF" />
+              </View>
+              <Text style={styles.actionText}>View Records</Text>
+            </TouchableOpacity>
+          )}
 
-          {/* Expenses Button */}
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => router.push('/expenses')}
-          >
-            <View style={[styles.actionIconContainer, { backgroundColor: '#2196F3' }]}>
-              <Ionicons name="wallet" size={32} color="#FFFFFF" />
-            </View>
-            <Text style={styles.actionText}>Expenses</Text>
-          </TouchableOpacity>
+          {/* Expenses Button - Only show if user has permission */}
+          {permissions.canCreateExpense && (
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/expenses')}
+            >
+              <View style={[styles.actionIconContainer, { backgroundColor: '#2196F3' }]}>
+                <Ionicons name="wallet" size={32} color="#FFFFFF" />
+              </View>
+              <Text style={styles.actionText}>Expenses</Text>
+            </TouchableOpacity>
+          )}
 
-          {/* Reports Button */}
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => router.push('/reports')}
-          >
-            <View style={[styles.actionIconContainer, { backgroundColor: '#673AB7' }]}>
-              <Ionicons name="bar-chart" size={32} color="#FFFFFF" />
-            </View>
-            <Text style={styles.actionText}>Reports</Text>
-          </TouchableOpacity>
+          {/* Reports Button - Only show if user has permission */}
+          {permissions.canViewMonthlyProfit && (
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/reports')}
+            >
+              <View style={[styles.actionIconContainer, { backgroundColor: '#673AB7' }]}>
+                <Ionicons name="bar-chart" size={32} color="#FFFFFF" />
+              </View>
+              <Text style={styles.actionText}>Reports</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Create Invoice Button - Only show if user has permission */}
+          {permissions.canCreateInvoice && (
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/invoices/new')}
+            >
+              <View style={[styles.actionIconContainer, { backgroundColor: '#009688' }]}> 
+                <Ionicons name="document-text" size={32} color="#FFFFFF" />
+              </View>
+              <Text style={styles.actionText}>Create Invoice</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Breeding Button - Only show if user has permission for animal management */}
+          {permissions.canManageAnimals && (
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/breeding')}
+            >
+              <View style={[styles.actionIconContainer, { backgroundColor: '#E91E63' }]}> 
+                <Ionicons name="paw" size={32} color="#FFFFFF" />
+              </View>
+              <Text style={styles.actionText}>Breeding</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Load In/Load Out Button - Only show if user has permission for collections management */}
+          {permissions.canManageCollections && (
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/loading')}
+            >
+              <View style={[styles.actionIconContainer, { backgroundColor: '#795548' }]}> 
+                <Ionicons name="swap-horizontal" size={32} color="#FFFFFF" />
+              </View>
+              <Text style={styles.actionText}>Load In / Load Out</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Sale/Purchase Button - Only show if user has permission for collections */}
+          {permissions.canManageCollections && (
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/sale')}
+            >
+              <View style={[styles.actionIconContainer, { backgroundColor: '#E91E63' }]}> 
+                <Ionicons name="cart-outline" size={32} color="#FFFFFF" />
+              </View>
+              <Text style={styles.actionText}>Sale / Purchase</Text>
+            </TouchableOpacity>
+          )}
           
-          {/* Create Invoice Button */}
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => router.push('/invoices/new')}
-          >
-            <View style={[styles.actionIconContainer, { backgroundColor: '#009688' }]}> 
-              <Ionicons name="document-text" size={32} color="#FFFFFF" />
-            </View>
-            <Text style={styles.actionText}>Create Invoice</Text>
-          </TouchableOpacity>
-
-          {/* Breeding Button */}
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => router.push('/breeding')}
-          >
-            <View style={[styles.actionIconContainer, { backgroundColor: '#E91E63' }]}> 
-              <Ionicons name="paw" size={32} color="#FFFFFF" />
-            </View>
-            <Text style={styles.actionText}>Breeding</Text>
-          </TouchableOpacity>
-
-          {/* Load In/Out Button */}
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => router.push('/loading')}
-          >
-            <View style={[styles.actionIconContainer, { backgroundColor: '#795548' }]}> 
-              <Ionicons name="swap-horizontal" size={32} color="#FFFFFF" />
-            </View>
-            <Text style={styles.actionText}>Load In / Load Out</Text>
-          </TouchableOpacity>
-
-          {/* Sale / Purchase Button */}
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => router.push('/sale')}
-          >
-            <View style={[styles.actionIconContainer, { backgroundColor: '#E91E63' }]}> 
-              <Ionicons name="cart-outline" size={32} color="#FFFFFF" />
-            </View>
-            <Text style={styles.actionText}>Sale / Purchase</Text>
-          </TouchableOpacity>
+          {/* Users Management - Only show for admins */}
+          {permissions.canManageUsers && (
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/admin/dashboard')}
+            >
+              <View style={[styles.actionIconContainer, { backgroundColor: '#3F51B5' }]}> 
+                <Ionicons name="people" size={32} color="#FFFFFF" />
+              </View>
+              <Text style={styles.actionText}>Manage Users</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
-
-      {/* Warning For Missing Expense */}
-      {!stats.monthlyExpenseEntered && (
-        <View style={styles.warningContainer}>
-          <Ionicons name="warning" size={24} color="#FF9800" />
-          <Text style={styles.warningText}>
-            Please enter your monthly expense to enable accurate profit calculations.
-          </Text>
-          <TouchableOpacity 
-            style={styles.warningButton}
-            onPress={() => router.push('/expenses')}
-          >
-            <Text style={styles.warningButtonText} >Add Expense</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Pull to refresh message */}
-      <Text style={styles.refreshText}>Pull down to refresh</Text>
     </ScrollView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -478,3 +593,5 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
 });
+
+export default HomeScreen;

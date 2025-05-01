@@ -18,10 +18,11 @@ import {
   DocumentSnapshot
 } from 'firebase/firestore';
 
-import { db, auth } from './config';
-import { User } from './auth';
+import { db, auth} from './config';
+// import { User } from 'firebase/auth';
 import { ReactNode } from 'react';
 import { LoadRecord } from '@/app/models/LoadRecord';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
 
 // Types
 export interface AnimalRecord {
@@ -119,6 +120,25 @@ export interface ProductionRecord {
   unit: string;
   date: string;
   notes?: string;
+}
+
+export interface UserPermission {
+  canCreateInvoice: boolean;
+  canCreateExpense: boolean;
+  canViewMonthlyProfit: boolean;
+  canManageAnimals: boolean;
+  canManageCollections: boolean;
+  canManageUsers: boolean;
+  isAdmin: boolean;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  permissions: UserPermission;
+  createdBy: string; // Admin's ID who created this user
+  createdAt: Date;
 }
 
 // Helper Functions
@@ -290,13 +310,13 @@ export const getMonthlyExpenses = async (year?: number, month?: number): Promise
     const userId = getCurrentUserId();
     let q = query(
       getMonthlyExpensesRef(),
-      where('userId', '==', userId)
+      // where('userId', '==', userId)
     );
     
     if (year !== undefined && month !== undefined) {
       q = query(
         getMonthlyExpensesRef(),
-        where('userId', '==', userId),
+        // where('userId', '==', userId),
         where('year', '==', year),
         where('month', '==', month)
       );
@@ -657,4 +677,61 @@ export const updateLoadRecord = async (id: string, data: Partial<LoadRecord>) =>
 export const deleteLoadRecord = async (id: string) => {
   const docRef = doc(db, 'loadRecords', id);
   await deleteDoc(docRef);
+};
+
+export const createUser = async (user: User): Promise<void> => {
+  const userRef = doc(db, 'users', user.id);
+  await setDoc(userRef, {
+    ...user,
+    createdAt: serverTimestamp()
+  });
+};
+
+export const getUser = async (userId: string): Promise<User | null> => {
+  const userRef = doc(db, 'users', userId);
+  const userSnap = await getDoc(userRef);
+  return userSnap.exists() ? userSnap.data() as User : null;
+};
+
+export const updateUserPermissions = async (
+  userId: string,
+  permissions: Partial<UserPermission>
+): Promise<void> => {
+  const userRef = doc(db, 'users', userId);
+  await updateDoc(userRef, {
+    permissions: {
+      ...permissions
+    }
+  });
+};
+
+export const createInitialAdmin = async (email: string, name: string): Promise<void> => {
+  try {
+    // Create user in Firebase Auth
+    const userCredential = await createUserWithEmailAndPassword(auth, email, 'admin123'); // Default password
+    const userId = userCredential.user.uid;
+
+    // Create admin user document in Firestore
+    const adminUser: User = {
+      id: userId,
+      email,
+      name,
+      permissions: {
+        canCreateInvoice: true,
+        canCreateExpense: true,
+        canViewMonthlyProfit: true,
+        canManageAnimals: true,
+        canManageCollections: true,
+        canManageUsers: true,
+        isAdmin: true
+      },
+      createdBy: 'system',
+      createdAt: new Date()
+    };
+
+    await createUser(adminUser);
+  } catch (error) {
+    console.error('Error creating admin user:', error);
+    throw error;
+  }
 };
