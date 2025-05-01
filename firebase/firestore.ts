@@ -252,9 +252,9 @@ export const getAnimalRecordById = async (id: string): Promise<AnimalRecord | nu
       const data = docSnap.data();
       
       // Only verify user ID if it exists in the record
-      if (data.userId && data.userId !== userId) {
-        throw new Error('Unauthorized access to animal record');
-      }
+      // if (data.userId && data.userId !== userId) {
+      //   throw new Error('Unauthorized access to animal record');
+      // }
       
       return formatDocumentData<AnimalRecord>(data, docSnap.id);
     }

@@ -1,5 +1,8 @@
 import { Stack } from 'expo-router';
 import { Colors } from '../../constants/Colors';
+import { HeaderBackButton } from '@react-navigation/elements';
+import { router } from 'expo-router';
+
 
 export default function LoadingLayout() {
   return (
@@ -20,6 +23,14 @@ export default function LoadingLayout() {
         options={{
           title: 'Breeding',
           headerLargeTitle: true,
+          headerLeft: () => (
+            <HeaderBackButton
+              tintColor='#fff'
+              onPress={() => {
+                router.push('/(tabs)');
+              }}
+            />
+          )
         }}
       />
     </Stack>

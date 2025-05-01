@@ -1,5 +1,7 @@
 import { Stack } from 'expo-router';
 import { Colors } from '../../constants/Colors';
+import { HeaderBackButton } from '@react-navigation/elements';
+import { router } from 'expo-router';
 
 export default function ReportsLayout() {
   return (
@@ -20,6 +22,14 @@ export default function ReportsLayout() {
         options={{
           title: 'Sale / Purchase',
           headerLargeTitle: true,
+          headerLeft: () => (
+            <HeaderBackButton
+              tintColor='#fff'
+              onPress={() => {
+                router.push('/(tabs)');
+              }}
+            />
+          )
         }}
       />
     </Stack>

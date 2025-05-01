@@ -1,6 +1,7 @@
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { Colors } from '../../constants/Colors';
-
+import { Button } from 'react-native-paper';
+import { HeaderBackButton } from '@react-navigation/elements';
 export default function RecordsLayout() {
   return (
     <Stack
@@ -20,6 +21,15 @@ export default function RecordsLayout() {
         options={{
           title: 'Animal Records',
           headerLargeTitle: true,
+          headerLeft: () => (
+          <HeaderBackButton
+          tintColor='#fff'
+          onPress={() => {
+            router.push('/(tabs)');
+            // Your custom logic (if any)
+            // navigation.goBack();
+          }}
+        />)
         }}
       />
       <Stack.Screen

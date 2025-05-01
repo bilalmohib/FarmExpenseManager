@@ -1,5 +1,8 @@
 import { Stack } from 'expo-router';
 import { Colors } from '../../constants/Colors';
+import { HeaderBackButton } from '@react-navigation/elements';
+import { router } from 'expo-router';
+
 
 export default function ExpensesLayout() {
   return (
@@ -20,6 +23,14 @@ export default function ExpensesLayout() {
         options={{
           title: 'Monthly Expenses',
           headerLargeTitle: true,
+          headerLeft: () => (
+            <HeaderBackButton
+              tintColor='#fff'
+              onPress={() => {
+                router.push('/(tabs)');
+              }}
+            />
+          )
         }}
       />
       <Stack.Screen
@@ -27,6 +38,14 @@ export default function ExpensesLayout() {
         options={{
           title: 'Add New Expense',
           presentation: 'modal',
+          headerLeft: () => (
+            <HeaderBackButton
+              tintColor='#fff'
+              onPress={() => {
+                router.push('/(tabs)');
+              }}
+            />
+          )
         }}
       />
     </Stack>

@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router';
 import { Colors } from '../../constants/Colors';
-
+import { HeaderBackButton } from '@react-navigation/elements';
+import { router } from 'expo-router';
 export default function InvoicesLayout() {
   return (
     <Stack
@@ -20,6 +21,14 @@ export default function InvoicesLayout() {
         options={{
           title: 'Create Invoice',
           presentation: 'modal',
+          headerLeft: () => (
+            <HeaderBackButton
+              tintColor='#fff'
+              onPress={() => {
+                router.push('/(tabs)');
+              }}
+            />  
+          )
         }}
       />
       {/* Add other invoice-related screens here if needed */}

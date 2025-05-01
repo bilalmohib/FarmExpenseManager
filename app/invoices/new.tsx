@@ -20,9 +20,11 @@ import * as RNHTMLtoPDF from 'react-native-html-to-pdf';
 import Share from 'react-native-share';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
-
+import { collection, DocumentReference, getDocs, query, where, writeBatch } from 'firebase/firestore';
+import { db } from '@/firebase/config';
 interface InvoiceItem {
   id: string;
+  itemNo: string;
   description: string;
   quantity: string;
   unitPrice: string;
@@ -37,6 +39,7 @@ interface InvoiceData {
   city: string;
   phone: string;
   items: InvoiceItem[];
+  itemNo: string;
   discountThreshold: string;
   discountPercentage: string;
   additionalDiscount: string;
@@ -56,21 +59,34 @@ export default function NewInvoiceScreen(): React.ReactElement {
     streetAddress: '',
     city: '',
     phone: '',
-    items: [{ id: Date.now().toString(), description: '', quantity: '1', unitPrice: '' }],
+    items: [{ id: Date.now().toString(), itemNo: '1', description: '', quantity: '1', unitPrice: '' }],
     discountThreshold: '1000000',
     discountPercentage: '10',
     additionalDiscount: '5',
     taxRate: '0',
-    notes: 'Make all checks payable to Unique Cattle Farm. If you have any questions concerning this invoice please contact us at Uniquecattlefarmpk@gmail.com or +92 312 7811868 , +92 302 3777494'
+    notes: 'Make all checks payable to Unique Cattle Farm. If you have any questions concerning this invoice please contact us at Uniquecattlefarmpk@gmail.com or +92 312 7811868 , +92 302 3777494',
   });
 
   // --- Item Management --- 
+  // const handleAddItem = () => {
+  //   setInvoiceData(prev => ({
+  //     ...prev,
+  //     items: [...prev.items, { id: Date.now().toString(), itemNo: '1', description: '', quantity: '1', unitPrice: '' }]
+  //   }));
+  // };
   const handleAddItem = () => {
-    setInvoiceData(prev => ({
-      ...prev,
-      items: [...prev.items, { id: Date.now().toString(), description: '', quantity: '1', unitPrice: '' }]
-    }));
+    setInvoiceData(prev => {
+      const newItemNo = (prev.items.length + 1).toString();
+      return {
+        ...prev,
+        items: [
+          ...prev.items,
+          { id: Date.now().toString(), itemNo: newItemNo, description: '', quantity: '1', unitPrice: '' }
+        ]
+      };
+    });
   };
+  
 
   const handleRemoveItem = (id: string) => {
     setInvoiceData(prev => ({
@@ -79,12 +95,26 @@ export default function NewInvoiceScreen(): React.ReactElement {
     }));
   };
 
+  // const handleItemChange = (id: string, field: keyof InvoiceItem, value: string, itemNo: string) => {
+  //   setInvoiceData(prev => ({
+  //     ...prev,
+  //     items: prev.items.map(item => item.id === id ? { ...item, [field]: value } : item),
+  //     itemNo: itemNo
+  //   }));
+  // };
+
+  // const handleItemChange = (id: string, p0: string, text: string, itemNo: string, field: keyof InvoiceItem, value: string) => {
+  //   setInvoiceData(prev => ({
+  //     ...prev,
+  //     items: prev.items.map(item => item.id === id ? { ...item, [field]: value } : item)
+  //   }));
+  // };
   const handleItemChange = (id: string, field: keyof InvoiceItem, value: string) => {
     setInvoiceData(prev => ({
       ...prev,
       items: prev.items.map(item => item.id === id ? { ...item, [field]: value } : item)
     }));
-  };
+  }; 
 
   // --- Calculations --- 
   const calculateItemAmount = (item: InvoiceItem): number => {
@@ -313,6 +343,114 @@ export default function NewInvoiceScreen(): React.ReactElement {
         directory: 'Documents', // Standard directory, might need adjustment based on platform/permissions
         base64: true,
       };
+      // console.log('item is', invoiceData);
+      // const animalRecordsRef = collection(db, 'animalRecords');
+      // const batch = writeBatch(db);
+    
+      // for (const item of invoiceData.items) {
+      //   if (item.itemNo) {
+      //     const snapshot = await getDocs(animalRecordsRef);
+    
+      //     snapshot.forEach(doc => {
+      //       const record = doc.data();
+      //       const individualAnimals = record.individualAnimals || [];
+      //       console.log('item.itemNo is', item.itemNo);
+      //       console.log('individualAnimals is', individualAnimals);
+      //       // Check if this record contains the animal we want to update
+      //       let hasMatchingAnimal = false;
+      //       individualAnimals.some((animal: any) => {
+      //         console.log('animal.id is', animal.id),
+      //         console.log('item.itemNo is', item.itemNo),
+      //         console.log('animal.status is', animal.status),
+      //         // if (animal.id === item.itemNo && animal.status === 'active') {
+      //         //   hasMatchingAnimal = true;
+      //         // }
+      //         // else {
+      //         //   hasMatchingAnimal = false;
+      //         // }
+      //         animal.id === item.itemNo && animal.status === 'active'? hasMatchingAnimal = true : hasMatchingAnimal = false;
+      //         // hasMatchingAnimal = animal.id === item.itemNo && animal.status === 'active';
+      //       });
+      //       // console.log('hasMatchingAnimal is', hasMatchingAnimal);
+      //       if (hasMatchingAnimal) {
+      //         const updatedAnimals = individualAnimals.map((animal: any) => {
+      //           if (animal.id === item.itemNo && animal.status === 'active') {
+      //             return {
+      //               ...animal,
+      //               status: 'sold',
+      //               salePrice: formatCurrency(calculateBalanceDue()),
+      //               soldDate: new Date().toISOString()
+      //             };
+      //           }
+      //           return animal;
+      //         });
+    
+      //         batch.update(doc.ref as DocumentReference, {
+      //           individualAnimals: updatedAnimals
+      //         });
+      //       }
+      //     });
+      //   }
+      // }
+    
+      // try {
+      //   await batch.commit();
+      //   console.log('Animal records updated successfully');
+      // } catch (error) {
+      //   console.error('Error updating animal records:', error);
+      // }
+
+      const animalRecordsRef = collection(db, 'animalRecords');
+const batch = writeBatch(db);
+
+for (const item of invoiceData.items) {
+  if (item.itemNo) {
+    const snapshot = await getDocs(animalRecordsRef);
+
+    snapshot.forEach(doc => {
+      const record = doc.data();
+      const individualAnimals = record.individualAnimals || [];
+
+      let hasMatchingAnimal = false;
+
+      individualAnimals.some((animal: any) => {
+        animal.id === item.itemNo && animal.status === 'active'? hasMatchingAnimal = true : hasMatchingAnimal = false;
+        return hasMatchingAnimal;
+      });
+
+      if (hasMatchingAnimal) {
+        const updatedAnimals = individualAnimals.map((animal: any) => {
+          if (animal.id === item.itemNo && animal.status === 'active') {
+            return {
+              ...animal,
+              status: 'sold',
+              salePrice: formatCurrency(calculateBalanceDue()),
+              sellingPrice: calculateBalanceDue(), // Add this line
+              soldDate: new Date().toISOString()
+            };
+          }
+          return animal;
+        });
+
+        batch.update(doc.ref as DocumentReference, {
+          individualAnimals: updatedAnimals,
+          status: 'sold',
+          salePrice: formatCurrency(calculateBalanceDue()),
+          sellingPrice: calculateBalanceDue(),
+          soldDate: new Date().toISOString()
+        });
+      }
+    });
+  }
+}
+
+try {
+  await batch.commit();
+  console.log('Animal records updated successfully');
+} catch (error) {
+  console.error('Error updating animal records:', error);
+}
+
 
       const file = await RNHTMLtoPDF.default.convert(options);
       console.log('PDF Generated: ', file.filePath);
@@ -445,8 +583,9 @@ export default function NewInvoiceScreen(): React.ReactElement {
             <Text style={styles.cardTitle}>Items</Text>
             {/* Item Header */}
             <View style={styles.itemRowHeader}>
+            <Text style={[styles.itemCol, styles.itemColNo, styles.itemHeaderText]}>Item no.</Text>
               <Text style={[styles.itemCol, styles.itemColQty, styles.itemHeaderText]}>Qty</Text>
-              <Text style={[styles.itemCol, styles.itemColDesc, styles.itemHeaderText]}>Description</Text>
+              {/* <Text style={[styles.itemCol, styles.itemColDesc, styles.itemHeaderText]}>Description</Text> */}
               <Text style={[styles.itemCol, styles.itemColPrice, styles.itemHeaderText]}>Unit Price</Text>
               <Text style={[styles.itemCol, styles.itemColAmount, styles.itemHeaderText]}>Amount</Text>
               <View style={[styles.itemCol, styles.itemColAction]} />{/* Action column placeholder*/}
@@ -455,16 +594,17 @@ export default function NewInvoiceScreen(): React.ReactElement {
             {invoiceData.items.map((item, index) => (
               <View key={item.id} style={styles.itemRow}>
                 <TextInput
-                  style={[styles.input, styles.itemInput, styles.itemColQty]}
-                  value={item.quantity}
-                  onChangeText={(text) => handleItemChange(item.id, 'quantity', text)}
+                  style={[styles.input, styles.itemInput, styles.itemColNo]}
+                  value={item.itemNo}
+                  onChangeText={(text) => handleItemChange(item.id, 'itemNo', text)}
                   keyboardType="numeric"
+                  placeholder="1"
                 />
                 <TextInput
-                  style={[styles.input, styles.itemInput, styles.itemColDesc]}
-                  value={item.description}
+                  style={[styles.input, styles.itemInput, styles.itemColQty]}
+                  value={item.quantity}
                   onChangeText={(text) => handleItemChange(item.id, 'description', text)}
-                  placeholder="Item description"
+                  placeholder="1"
                 />
                 <TextInput
                   style={[styles.input, styles.itemInput, styles.itemColPrice]}
@@ -707,8 +847,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     textAlignVertical: 'center',
   },
-  itemColQty: { width: '15%', textAlign: 'center' },
-  itemColDesc: { flex: 1 },
+  itemColNo: { width: '20%', textAlign: 'center' },
+  itemColQty: { width: '20%', textAlign: 'center' },
+  itemColDesc: { width: '20%', flex: 1 },
   itemColPrice: { width: '22%', textAlign: 'right' },
   itemColAmount: { width: '25%', textAlign: 'right' },
   itemColAction: { width: '10%', alignItems: 'center', justifyContent: 'center' },
