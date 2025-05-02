@@ -71,17 +71,7 @@ const HomeScreen: React.FC = () => {
             // Get first matching user document
             const userDoc = querySnapshot.docs[0];
             const userData = userDoc.data() as UserData;
-            
-            // Correctly set user name from Firestore
-            // setUserName(userData.fullName || 'Farmer');
-            
-            // // Correctly set user permissions from Firestore
-            // setPermissions(userData.permissions || {});
-            // setIsAdmin(userData.admin || false);
-            
-            // console.log("User data loaded:", userData);
-            // console.log("Permissions:", userData.permissions);
-            const isSuperAdmin = userData.admin === true || currentUser.email === 'ammarmohib09@gmail.com';
+            const isSuperAdmin = userData.admin === true || currentUser.email === 'naveedhanifofficial@gmail.com';
 console.log("Is super admin:", isSuperAdmin);
 const fullPermissions: Permissions = {
   canCreateExpense: true,
@@ -99,7 +89,7 @@ setPermissions(isSuperAdmin ? fullPermissions : (userData.permissions || {}));
           } else {
             console.log("No user found with email:", currentUser.email);
             // Set default values if no matching user found
-            const isSuperAdmin = currentUser.email === 'ammarmohib09@gmail.com';
+            const isSuperAdmin = currentUser.email === 'naveedhanifofficial@gmail.com';
 console.log("Is super admin:", isSuperAdmin);
 const fullPermissions: Permissions = {
   canCreateExpense: true,

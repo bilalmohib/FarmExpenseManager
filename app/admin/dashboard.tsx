@@ -189,6 +189,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row', justifyContent: 'flex-start',
     alignItems: 'center', padding: 16, backgroundColor: Colors.light.primary,
+    marginTop: 50,
   },
   title: { fontSize: 20, fontWeight: 'bold', color: '#fff' },
   backButton: { color: '#fff', fontSize: 16 },

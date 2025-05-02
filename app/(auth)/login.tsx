@@ -29,25 +29,6 @@ export default function LoginScreen() {
   const [secureTextEntry, setSecureTextEntry] = useState(true);
   const router = useRouter();
 
-  // // Add auth state listener
-  // useEffect(() => {
-  //   const unsubscribe = onAuthStateChanged(auth, (user) => {
-  //     if (user) {
-  //       // User is signed in
-  //       console.log('User is already logged in:', user);
-  //       // Check if user is admin based on email
-  //       if (user.email === 'ammarmohib09@gmail.com') {
-  //         router.replace('/admin/dashboard');
-  //       } else {
-  //         router.replace('/(tabs)');
-  //       }
-  //     }
-  //   });
-
-  //   // Cleanup subscription on unmount
-  //   return () => unsubscribe();
-  // }, []);
-
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
@@ -76,13 +57,7 @@ export default function LoginScreen() {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       console.log('User is logged in:', user);
-      // Check if user is admin based on email
-      if (user.email === 'ammarmohib09@gmail.com') {
-        router.replace('/(tabs)');
-      } else {
-        console.log('User is not admin, redirecting to tabs');
-        router.replace('/(tabs)');
-      }
+      router.replace('/(tabs)');
     } catch (error: any) {
       let errorMessage = 'An error occurred during login';
       
@@ -308,4 +283,4 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 4,
   },
-}); 
+});   

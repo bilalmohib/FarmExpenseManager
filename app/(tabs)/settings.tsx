@@ -11,27 +11,81 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { signOut, getCurrentUser } from '../lib/firebase';
-import { User } from 'firebase/auth';
+import { signOut, getCurrentUser, auth, db } from '../lib/firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 
 export default function SettingsScreen() {
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [darkModeEnabled, setDarkModeEnabled] = useState(false);
+  const [userData, setUserData] = useState<UserData | null>(null);
+  const [userName, setUserName] = useState<string>('Farmer');
+  const [userEmail, setUserEmail] = useState<string>('No email');
   const router = useRouter();
 
-  useEffect(() => {
-    const loadUserProfile = async () => {
-      try {
-        const currentUser = await getCurrentUser();
-        setUser(currentUser);
-      } catch (error) {
-        console.error('Error loading user profile:', error);
-      }
-    };
 
-    loadUserProfile();
+  interface UserData {
+    fullName: string;
+    lastName: string;
+    firstName: string;
+    name?: string;
+    permissions?: Permissions;
+    admin?: boolean;
+  }
+  // useEffect(() => {
+  //   const loadUserProfile = async () => {
+  //     try {
+  //       const currentUser = await getCurrentUser();
+  //       setUser(currentUser);
+  //     } catch (error) {
+  //       console.error('Error loading user profile:', error);
+  //     }
+  //   };
+
+  //   loadUserProfile();
+  // }, []);
+
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        
+        // Get reference to users collection
+        const usersCollectionRef = collection(db, 'users');
+        
+        // Create a query to find the user with matching email
+        const q = query(usersCollectionRef, where('email', '==', currentUser.email));
+        
+        // Set up listener for query results
+        const unsubscribeUser = onSnapshot(q, (querySnapshot) => {
+          if (!querySnapshot.empty) {
+            // Get first matching user document
+            const userDoc = querySnapshot.docs[0];
+            const userData = userDoc.data() as UserData;
+
+
+setUserName(userData.fullName || 'Farmer');
+setUserEmail(currentUser.email || 'No email');
+
+// setUserName(userData.fullName || 'Farmer');
+            // setUserName(currentUser.displayName || 'Farmer');
+            // setPermissions({});
+            // setIsAdmin(false);
+          }
+        });
+
+        return () => unsubscribeUser();
+      } else {
+        setUser(null);
+        setUserName('Farmer');
+        setUserEmail('No email');
+        setLoading(false);
+      }
+    });
+
+    return () => unsubscribeAuth();
   }, []);
 
   const handleLogout = async () => {
@@ -74,8 +128,8 @@ export default function SettingsScreen() {
           <Ionicons name="person" size={40} color="#fff" />
         </View>
         <View style={styles.profileInfo}>
-          <Text style={styles.profileName}>{user?.displayName || 'User'}</Text>
-          <Text style={styles.profileEmail}>{user?.email || 'No email'}</Text>
+          <Text style={styles.profileName}>{userName}</Text>
+          <Text style={styles.profileEmail}>{userEmail}</Text>
         </View>
         <TouchableOpacity style={styles.editButton}>
           <Ionicons name="create-outline" size={24} color="#27ae60" />
