@@ -6,6 +6,7 @@ import { collection, getDocs } from 'firebase/firestore';
 import { User, UserPermission, updateUserPermissions } from '../../firebase/firestore';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { ActivityIndicator } from 'react-native-paper';
 
 export default function AdminDashboard() {
   const [users, setUsers] = useState<User[]>([]);
@@ -89,7 +90,7 @@ export default function AdminDashboard() {
       </View>
 
       <ScrollView style={styles.content}>
-        {users.map(user => (
+        {users.length > 0 ? users.map(user => (
           <View key={user.id} style={styles.userCard}>
             <View style={styles.userInfo}>
               <Text style={styles.userName}>{user.name}</Text>
@@ -103,7 +104,8 @@ export default function AdminDashboard() {
               <Text style={styles.permissionButtonText}>Permissions</Text>
             </TouchableOpacity>
           </View>
-        ))}
+        )): <Text style={{textAlign: 'center', marginTop: 20}}>No users found</Text>}
+        {loading && <ActivityIndicator />}
       </ScrollView>
 
       {/* Permissions Modal */}

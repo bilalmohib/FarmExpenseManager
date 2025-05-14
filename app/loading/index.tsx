@@ -13,8 +13,10 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
-import { getAllAnimalRecords, getMonthlyExpenses, AnimalRecord, MonthlyExpense } from '../../firebase/firestore';
+import { getAllAnimalRecords, getMonthlyExpenses, AnimalRecord, MonthlyExpense, getAllLoadRecords } from '../../firebase/firestore';
 import { PieChart, BarChart, LineChart } from 'react-native-chart-kit';
+import { LoadRecord } from '../models/LoadRecord';
+import { set } from 'react-hook-form';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -46,6 +48,7 @@ interface ReportStats {
   totalSale: number;
   profit: number;
   loss: number;
+  collectionNames: [];
   collections: Record<string, CollectionStats>;
   animals: Record<string, {
     totalExpense: number;
@@ -58,14 +61,16 @@ interface ReportStats {
 
 export default function LoadInOut() {
   const [loading, setLoading] = useState(true);
-  const [records, setRecords] = useState<AnimalRecord[]>([]);
+  const [records, setRecords] = useState<LoadRecord[]>([]);
+  const [daysInFarm, setDaysInFarm] = useState<number>(0);
   const [stats, setStats] = useState<ReportStats>({
     totalExpense: 0,
     totalSale: 0,
     profit: 0,
     loss: 0,
-    collections: {},
-    animals: {}
+    collectionNames: [],
+    animals: {},
+    collections: {}
   });
   const [selectedPeriod, setSelectedPeriod] = useState<'month' | 'year' | 'all'>('all');
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
@@ -81,8 +86,10 @@ export default function LoadInOut() {
   const loadRecords = async () => {
     try {
       setLoading(true);
-      const allRecords = await getAllAnimalRecords();
-      setRecords(allRecords);
+      const allRecords = await getAllLoadRecords();
+      // Filter only load records
+      const loadRecords = allRecords.filter(record => record.recordType === 'load');
+      setRecords(loadRecords);
     } catch (error) {
       console.error('Error loading records:', error);
       Alert.alert('Error', 'Failed to load records');
@@ -91,133 +98,151 @@ export default function LoadInOut() {
     }
   };
 
-  const calculateAnimalExpense = (record: AnimalRecord, monthlyExpenses: MonthlyExpense[]) => {
-    // Calculate days in farm
-    const daysInFarm = record.status === 'sold' && record.soldDate
-      ? Math.floor((new Date(record.soldDate).getTime() - new Date(record.purchaseDate).getTime()) / (1000 * 60 * 60 * 24))
-      : Math.floor((new Date().getTime() - new Date(record.purchaseDate).getTime()) / (1000 * 60 * 60 * 24));
-
-    // Calculate base expenses
-    const animalExpenses = Object.values(record.expenses || {}).reduce((sum: number, expense) => 
-      sum + (expense as {amount: number}).amount, 0);
-    
-    // Find matching expenses based on collection tags
-    const matchingExpenses = monthlyExpenses.filter(expense => 
-      expense.tags && record.collectionNames.some(collectionName => 
-        expense.tags.includes(collectionName)
-      )
-    ).reduce((sum, expense) => sum + expense.amount, 0);
-
-    const totalExpense = record.purchasePrice + animalExpenses + matchingExpenses;
-
-    // For bulk animals, calculate based on days in farm
-    if (record.isBulk) {
-      const totalDays = record.individualAnimals?.reduce((sum, animal) => {
-        if (animal.status === 'sold' && animal.soldDate) {
-          const days = Math.floor((new Date(animal.soldDate).getTime() - new Date(record.purchaseDate).getTime()) / (1000 * 60 * 60 * 24));
-          return sum + days;
-        }
-        return sum;
-      }, 0) || 0;
-
-      if (totalDays === 0) return 0;
-
-      // Calculate daily expense rate
-      const dailyExpenseRate = totalExpense / totalDays;
-
-      // Calculate individual animal expenses
-      return record.individualAnimals?.reduce((sum, animal) => {
-        if (animal.status === 'sold' && animal.soldDate) {
-          const days = Math.floor((new Date(animal.soldDate).getTime() - new Date(record.purchaseDate).getTime()) / (1000 * 60 * 60 * 24));
-          return sum + (days * dailyExpenseRate);
-        }
-        return sum;
-      }, 0) || 0;
-    }
-
-    // For single animals, calculate based on days in farm
-    return daysInFarm * (totalExpense / daysInFarm);
+  const calculateAnimalExpense = (record: LoadRecord, monthlyExpenses: MonthlyExpense[]) => {
+    // Ensure this is a load record
+    if (record.recordType !== 'load') return 0;
+    function toDate(input: any): Date {
+  if (input instanceof Date) return input;
+  if (input?.toDate) return input.toDate(); // Firestore Timestamp object
+  return new Date(input); // ISO string or timestamp number
+}
+const loadInDate = record.loadInDate ? toDate(record.loadInDate) : new Date();
+const loadOutDate = record.status === 'loaded out' && record.loadOutDate 
+  ? toDate(record.loadOutDate) 
+  : new Date();
+    const daysInFarm = Math.max(1, Math.floor((loadOutDate.getTime() - loadInDate.getTime()) / (1000 * 60 * 60 * 24)));
+console.log('load in date:', loadInDate);
+console.log('load out date:', loadOutDate);
+    // Calculate total expense per day
+    const totalExpense = record.LoadInPrice ? parseFloat(record.LoadInPrice.toString()) : 0;
+    console.log('total expense sa :', totalExpense);
+    const expensePerDay = totalExpense / daysInFarm;
+console.log('expense per day:', expensePerDay.toString());
+    // Calculate total expense based on days in farm
+    return daysInFarm * expensePerDay;
   };
 
-  const calculateStats = async () => {
-    const newStats: ReportStats = {
-      totalExpense: 0,
-      totalSale: 0,
-      profit: 0,
-      loss: 0,
-      collections: {},
-      animals: {}
-    };
+const calculateStats = async () => {
+  const newStats: ReportStats = {
+    totalExpense: 0,
+    totalSale: 0,
+    profit: 0,
+    loss: 0,
+    collectionNames: [],
+    collections: {},
+    animals: {}
+  };
 
-    try {
-      // Get all monthly expenses
-      const monthlyExpenses = await getMonthlyExpenses();
-
-      records.forEach(record => {
-        // Calculate total expenses for the animal
-        const totalExpense = calculateAnimalExpense(record, monthlyExpenses);
-        const salePrice = record.sellingPrice || 0;
-
-        // Calculate profit/loss for the animal only if it's sold
-        let profit = 0;
-        let loss = 0;
-
-        if (record.status === 'sold') {
-          // Calculate based on expenses
-          const expectedExpense = salePrice; // Using sale price as expected expense
-          const actualExpense = totalExpense;
-          profit = expectedExpense > actualExpense ? expectedExpense - actualExpense : 0;
-          loss = expectedExpense < actualExpense ? actualExpense - expectedExpense : 0;
+  try {
+    // Get all monthly expenses and organize by collection
+    const monthlyExpenses = await getMonthlyExpenses();
+    const collectionExpenses: Record<string, number> = {};
+    
+    monthlyExpenses.forEach(expense => {
+      expense.tags.forEach((tag: string) => {
+        if (!collectionExpenses[tag]) {
+          collectionExpenses[tag] = 0;
         }
+        collectionExpenses[tag] += expense.amount;
+      });
+    });
 
-        // Update animal stats
-        newStats.animals[record.id] = {
-          totalExpense,
-          salePrice,
-          profit,
-          loss,
-          status: record.status || 'unsold'
-        };
-
-        // Update collection stats
-        record.collectionNames.forEach(collectionName => {
-          if (!newStats.collections[collectionName]) {
-            newStats.collections[collectionName] = {
-              totalExpense: 0,
-              totalSale: 0,
-              profit: 0,
-              loss: 0,
-              animalCount: 0,
-              animals: []
-            };
-          }
-
-          const collection = newStats.collections[collectionName];
-          collection.totalExpense += totalExpense;
-          collection.totalSale += salePrice;
-          collection.profit += profit;
-          collection.loss += loss;
-          collection.animalCount += record.isBulk ? record.quantity : 1;
-          collection.animals.push({
-            animalNumber: record.animalNumber,
-            profit,
-            loss
-          });
-        });
-
-        // Update overall stats
-        newStats.totalExpense += totalExpense;
-        newStats.totalSale += salePrice;
-        newStats.profit += profit;
-        newStats.loss += loss;
+    // Process each record
+    records.forEach(record => {
+      if (record.recordType !== 'load') return;
+      
+      const loadInPrice = record.LoadInPrice || 0; // This is ET (Expected/Taken Expense)
+      let actualExpense = 0; // This is E (Actual Expense)
+      
+      // Calculate actual expense for this animal's collections
+      record.collectionNames.forEach(collectionName => {
+        actualExpense += collectionExpenses[collectionName] || 0;
       });
 
-      setStats(newStats);
-    } catch (error) {
-      console.error('Error calculating stats:', error);
-      Alert.alert('Error', 'Failed to calculate statistics');
-    }
-  };
+      // Calculate profit/loss for this animal
+      const profitOrLoss = loadInPrice - actualExpense;
+      const profit = profitOrLoss > 0 ? profitOrLoss : 0;
+      const loss = profitOrLoss < 0 ? Math.abs(profitOrLoss) : 0;
+
+      // Update collection stats
+      record.collectionNames.forEach(collectionName => {
+        if (!newStats.collections[collectionName]) {
+          newStats.collections[collectionName] = {
+            totalExpense: 0,
+            totalSale: 0,
+            profit: 0,
+            loss: 0,
+            animalCount: 0,
+            animals: []
+          };
+        }
+
+        const collection = newStats.collections[collectionName];
+        collection.totalExpense += actualExpense;
+        collection.totalSale += loadInPrice;
+        collection.profit += profit;
+        collection.loss += loss;
+        collection.animalCount += 1;
+        collection.animals.push({
+          animalNumber: record.animalNumber,
+          profit,
+          loss
+        });
+      });
+
+      // Update overall stats
+      newStats.totalExpense += actualExpense;
+      newStats.totalSale += loadInPrice;
+      newStats.profit += profit;
+      newStats.loss += loss;
+
+      // Store individual animal stats
+      newStats.animals[record.id] = {
+        totalExpense: actualExpense,
+        salePrice: loadInPrice,
+        profit,
+        loss,
+        status: record.status
+      };
+    });
+
+    setStats(newStats);
+  } catch (error) {
+    console.error('Error calculating stats:', error);
+    Alert.alert('Error', 'Failed to calculate statistics');
+  }
+};
+
+const getDaysDifference = (
+  loadInDate: any,
+  loadOutDate: any
+): number | null => {
+  console.log('Getting days difference...');
+  console.log('Load In Date:', loadInDate);
+  console.log('Load Out Date:', loadOutDate);
+
+  if (!loadInDate || !loadOutDate) {
+    console.warn('❌ One or both dates are null or undefined.');
+    return null;
+  }
+
+  // Convert Firestore Timestamp to JS Date
+  const start = loadInDate.toDate ? loadInDate.toDate() : new Date(loadInDate);
+  const end = loadOutDate.toDate ? loadOutDate.toDate() : new Date(loadOutDate);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    console.warn('❌ Invalid date(s) provided.');
+    return null;
+  }
+
+  const diffMilliseconds = end.getTime() - start.getTime();
+  const diffDays = Math.ceil(diffMilliseconds / (1000 * 60 * 60 * 24));
+
+  console.log('✅ Days Difference:', diffDays);
+  return diffDays;
+};
+
+
 
   const formatCurrency = (amount: number) => {
     return `₹${Math.abs(amount).toFixed(2)}`;
@@ -298,58 +323,65 @@ export default function LoadInOut() {
     };
   };
 
-  const getDayWiseData = () => {
-    const dayWiseData: Record<string, {
-      totalExpense: number;
-      totalSale: number;
-      profit: number;
-      loss: number;
-      animalCount: number;
-    }> = {};
+  interface DayWiseStats {
+    days: number;
+    totalExpense: number;
+    totalSale: number;
+    profit: number;
+    loss: number;
+    animalCount: number;
+  }
 
-    records.forEach(record => {
-      const purchaseDate = new Date(record.purchaseDate);
-      const daysInFarm = record.individualAnimals?.map(animal => {
-        if (animal.status === 'sold' && animal.soldDate) {
-          const soldDate = new Date(animal.soldDate);
-          return Math.floor((soldDate.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24));
-        }
-        return Math.floor((new Date().getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24));
-      }) || [Math.floor((new Date().getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24))];
+const getDayWiseData = (): DayWiseStats[] => {
+  const dayWiseData: Record<number, DayWiseStats> = {};
 
-      daysInFarm.forEach(days => {
-        if (!dayWiseData[days]) {
-          dayWiseData[days] = {
-            totalExpense: 0,
-            totalSale: 0,
-            profit: 0,
-            loss: 0,
-            animalCount: 0
-          };
-        }
+  records.forEach(record => {
+    if (!record.loadInDate || !record.loadOutDate) return;
 
-        const dailyData = dayWiseData[days];
-        dailyData.totalExpense += record.purchasePrice;
-        if (record.status === 'sold') {
-          dailyData.totalSale += record.sellingPrice || 0;
-          const profit = (record.sellingPrice || 0) - record.purchasePrice;
-          if (profit > 0) {
-            dailyData.profit += profit;
-          } else {
-            dailyData.loss += Math.abs(profit);
-          }
-        }
-        dailyData.animalCount += record.isBulk ? record.quantity : 1;
-      });
+    const loadInDate = record.loadInDate.toDate();
+    const loadOutDate = record.loadOutDate.toDate();
+    const totalDays = Math.floor((loadOutDate.getTime() - loadInDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    // Calculate daily values
+    const dailyExpense = (record.LoadInPrice || 0) / totalDays;
+    let actualDailyExpense = 0;
+    
+    // Calculate actual daily expense from collections
+    record.collectionNames.forEach(name => {
+      const collectionExpense = stats.collections[name]?.totalExpense || 0;
+      actualDailyExpense += collectionExpense / totalDays;
     });
 
-    return Object.entries(dayWiseData)
-      .sort(([a], [b]) => parseInt(a) - parseInt(b))
-      .map(([days, data]) => ({
-        days: parseInt(days),
-        ...data
-      }));
-  };
+    // Create entry for each day this animal was in farm
+    for (let day = 1; day <= totalDays; day++) {
+      if (!dayWiseData[day]) {
+        dayWiseData[day] = {
+          days: day,
+          totalExpense: 0,
+          totalSale: 0,
+          profit: 0,
+          loss: 0,
+          animalCount: 0
+        };
+      }
+
+      const profitOrLoss = dailyExpense - actualDailyExpense;
+      
+      dayWiseData[day].totalExpense += actualDailyExpense;
+      dayWiseData[day].totalSale += dailyExpense;
+      dayWiseData[day].animalCount += 1;
+      
+      if (profitOrLoss > 0) {
+        dayWiseData[day].profit += profitOrLoss;
+      } else {
+        dayWiseData[day].loss += Math.abs(profitOrLoss);
+      }
+    }
+  });
+
+  // Convert to array and sort by day
+  return Object.values(dayWiseData).sort((a, b) => a.days - b.days);
+};
 
   const renderDayWiseStats = () => {
     const dayWiseData = getDayWiseData();
@@ -451,16 +483,22 @@ export default function LoadInOut() {
               <Text style={styles.statLabel}>Load In / Out Price</Text>
               <Text style={styles.statValue}>{formatCurrency(data.salePrice)}</Text>
             </View>
-            {data.status === 'sold' && (
-              <View style={styles.statItem}>
-                <Text style={styles.statLabel}>{data.profit > 0 ? 'Profit' : 'Loss'}</Text>
-                {data.profit > 0 ? (
-                  <Text style={[styles.statValue, styles.profitText]}>{formatCurrency(data.profit)}</Text>
-                ) : (
-                  <Text style={[styles.statValue, styles.lossText]}>{formatCurrency(data.loss)}</Text>
-                )}
-              </View>
-            )}
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>Profit/Loss</Text>
+              {data.status === 'loaded out' && (
+              <Text style={[
+                styles.statValue, 
+                data.salePrice > data.totalExpense ? styles.profitText : styles.lossText
+              ]}>
+                {formatCurrency(Math.abs(data.salePrice - data.totalExpense))}
+                {' '}
+                {data.salePrice > data.totalExpense ? '(Profit)' : '(Loss)'}
+              </Text>
+              )}
+              {data.status !== 'loaded out' && (
+              <Text style={styles.statValue}>Pending</Text>
+              )}
+            </View>
           </View>
         </View>
       );

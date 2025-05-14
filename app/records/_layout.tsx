@@ -40,6 +40,27 @@ export default function RecordsLayout() {
         }}
       />
       <Stack.Screen
+        name="new/new_sale"
+        options={{
+          title: 'Add New Sale',
+          presentation: 'modal',
+        }}
+      />
+      <Stack.Screen
+        name="new/new_load"
+        options={{
+          title: 'Add New Load',
+          presentation: 'modal',
+        }}
+      />
+      <Stack.Screen
+        name="new/new_breed"
+        options={{
+          title: 'Add New breed',
+          presentation: 'modal',
+        }}
+      />
+      <Stack.Screen
         name="[id]"
         options={{
           title: 'Edit Record',

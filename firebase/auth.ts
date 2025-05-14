@@ -2,7 +2,6 @@
 import {
   createUserWithEmailAndPassword as fbCreateUser,
   signInWithEmailAndPassword as fbSignIn,
-  signInWithPopup,
   GoogleAuthProvider,
   signOut as fbSignOut,
   sendPasswordResetEmail,
@@ -81,18 +80,13 @@ export const signInWithEmailAndPassword = signInWithEmail;
 /**
  * Sign in with Google
  */
-export const signInWithGoogle = async (): Promise<User> => {
-  try {
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: 'select_account' });
-    
-    const userCredential = await signInWithPopup(auth, provider);
-    return userCredential.user;
-  } catch (error: any) {
-    console.error('Google login error:', error);
-    throw new Error(error.message || 'Google login failed');
-  }
-};
+// export const signInWithGoogle = async (): Promise<User> => {
+// export const signInWithGoogle = async (): Promise<User> => {
+//   throw new Error('Google sign-in is not supported in React Native. Use expo-auth-session or react-native-google-signin instead.');
+// };
+//     throw new Error(.message || 'Google login failed');
+//   }
+// };
 
 /**
  * Sign out the current user

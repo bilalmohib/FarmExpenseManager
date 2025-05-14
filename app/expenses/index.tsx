@@ -343,6 +343,7 @@ export default function ExpensesScreen() {
                 onChangeText={setExpenseType}
                 placeholder="e.g., Feed, Medicine, Labour"
               />
+              <Text style={styles.inputLabel}>Tags</Text>
 <TextInput
   style={styles.input}
   value={expenseTags.join(', ')}

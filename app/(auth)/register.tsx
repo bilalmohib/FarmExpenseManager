@@ -640,7 +640,7 @@ export default function RegisterScreen() {
       console.error('Registration error:', error);
     } finally {
       setLoading(false);
-      router.push('/login');
+      router.push('/(auth)/login');
     }
   };
 
