@@ -20,7 +20,10 @@ import * as ImagePicker from 'expo-image-picker';
 import { addAnimalRecord } from '../../../firebase/firestore';
 import { Colors } from '../../../constants/Colors';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { getDocs, collection } from 'firebase/firestore';
+import { db } from '../../../firebase';
 import { AnimalRecord, HealthRecord, BreedingRecord, VaccinationRecord, AnimalExpense } from '../../../firebase/firestore';
+import { logActivity } from '../../admin/activity_log';
 
 interface FormData {
   animalNumber: string;
@@ -125,6 +128,25 @@ export default function NewSaleRecordScreen(): React.ReactElement {
     try {
       setLoading(true);
       
+      // Check if animal number already exists
+      const querySnapshot = await getDocs(collection(db, "animalRecords"));
+      let isDuplicate = false;
+
+      for (const doc of querySnapshot.docs) {
+        const data = doc.data();
+        if (data.animalNumber === formData.animalNumber.trim()) {
+          console.log("Animal Number already exists:", data.animalNumber);
+          isDuplicate = true;
+          break;
+        }
+      }
+
+      if (isDuplicate) {
+        Alert.alert('Error', 'Animal with this number already exists in the database. Please enter a different animal number');
+        setLoading(false);
+        return;
+      }
+      
       // Calculate individual animal expenses and profits
       const quantity = formData.isBulk ? parseInt(formData.quantity) : 1;
       const totalExpense = parseFloat(formData.purchasePrice) || 0;
@@ -158,7 +180,8 @@ export default function NewSaleRecordScreen(): React.ReactElement {
           individualLoss: loss
       }];
 
-      await addAnimalRecord({
+      // Create the record data
+      const recordData = {
         ...formData,
         animalNumber: formData.animalNumber.trim(),
         purchasePrice: totalExpense,
@@ -178,12 +201,33 @@ export default function NewSaleRecordScreen(): React.ReactElement {
         date: new Date().toISOString(),
         weight: 0,
         animalType: '',
-        recordType: '',
+        recordType: 'sale',
         collectionNames: formData.collectionNames,
         saleDate: soldDate,
         name: '',
         collectionName: ''
-      });
+      };
+
+      // Add the animal record
+      await addAnimalRecord(recordData);
+      
+      // Log the activity
+      await logActivity(
+        'sale_record',
+        `New animal sale record added: ${formData.animalNumber.trim()}`,
+        formData.animalNumber,
+        {
+          entityId: formData.animalNumber.trim(),
+          entityType: 'sale',
+          action: 'create',
+          metadata: {
+            category: formData.category,
+            purchasePrice: totalExpense,
+            sellingPrice: sellingPrice,
+            date: formData.purchaseDate.toISOString()
+          }
+        }
+      );
       
       Alert.alert('Success', 'Animal record added successfully', [
         { text: 'OK', onPress: () => router.back() }

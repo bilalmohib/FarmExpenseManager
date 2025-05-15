@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   SafeAreaView
 } from 'react-native';
+import { addDoc } from "firebase/firestore";
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
@@ -46,13 +47,55 @@ interface InvoiceData {
   taxRate: string;
   notes: string;
 }
-
+type Invoice = {
+  invoiceNumber: string;
+  createdAt: Date;
+  customerName: string;
+  companyName: string;
+  streetAddress: string;
+  city: string;
+  phone: string;
+  items: InvoiceItem[];
+  discountThreshold: string;
+  discountPercentage: string;
+  additionalDiscount: string;
+  taxRate: string;
+  notes: string;
+};
 export default function NewInvoiceScreen(): React.ReactElement {
   const router = useRouter();
   const [loading, setLoading] = useState<boolean>(false);
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
+  const [invoiceNum, setInvoiceNum] = useState<number>(1);
+
+
+  useEffect(() => {
+    const fetchInvoices = async () => {
+      try {
+        const querySnapshot = await getDocs(collection(db, "invoices"));
+        if (querySnapshot.empty) {
+          setInvoiceNum(1);
+          return;
+        }
+
+        const invoiceNumbers: number[] = querySnapshot.docs.map((doc) => {
+          const data = doc.data();
+          return data.invoiceNumber ?? 0;
+        });
+
+        const maxInvoice = Math.max(...invoiceNumbers);
+        setInvoiceNum(maxInvoice + 1);
+      } catch (error) {
+        console.error("Error fetching invoices:", error);
+      }
+    };
+
+    fetchInvoices();
+  }, []);
+
   const [invoiceData, setInvoiceData] = useState<InvoiceData>({
-    invoiceNumber: '1111', // Example initial value
+    invoiceNumber: invoiceNum.toString(),
+    itemNo: '1',
     date: new Date(),
     customerName: '',
     companyName: '',
@@ -86,7 +129,7 @@ export default function NewInvoiceScreen(): React.ReactElement {
       };
     });
   };
-  
+
 
   const handleRemoveItem = (id: string) => {
     setInvoiceData(prev => ({
@@ -114,7 +157,7 @@ export default function NewInvoiceScreen(): React.ReactElement {
       ...prev,
       items: prev.items.map(item => item.id === id ? { ...item, [field]: value } : item)
     }));
-  }; 
+  };
 
   // --- Calculations --- 
   const calculateItemAmount = (item: InvoiceItem): number => {
@@ -138,9 +181,9 @@ export default function NewInvoiceScreen(): React.ReactElement {
 
   const calculateTotalAmountAfterItemDiscount = (): number => {
     return invoiceData.items.reduce((sum, item) => {
-        const itemAmount = calculateItemAmount(item);
-        const discount = calculateDiscountAmount(itemAmount);
-        return sum + (itemAmount - discount);
+      const itemAmount = calculateItemAmount(item);
+      const discount = calculateDiscountAmount(itemAmount);
+      return sum + (itemAmount - discount);
     }, 0);
   };
 
@@ -169,11 +212,11 @@ export default function NewInvoiceScreen(): React.ReactElement {
 
   // --- PDF Generation --- 
   const generateHTML = async (data: InvoiceData): Promise<string> => {
-    
+
     // Load the logo image and convert to base64
     let logoBase64 = '';
     try {
-      const logoAsset = Asset.fromModule(require('../../assets/images/icon.png')); // Adjust path if needed
+      const logoAsset = Asset.fromModule(require('../../assets/images/logo.png')); // Adjust path if needed
       await logoAsset.downloadAsync();
       if (logoAsset.localUri) {
         logoBase64 = await FileSystem.readAsStringAsync(logoAsset.localUri, {
@@ -343,113 +386,165 @@ export default function NewInvoiceScreen(): React.ReactElement {
         directory: 'Documents', // Standard directory, might need adjustment based on platform/permissions
         base64: true,
       };
-      // console.log('item is', invoiceData);
-      // const animalRecordsRef = collection(db, 'animalRecords');
-      // const batch = writeBatch(db);
-    
+      try {
+        const docRef = await addDoc(collection(db, "invoices"), {
+          invoiceNumber: invoiceData.invoiceNumber,
+          createdAt: new Date(),
+          customerName: invoiceData.customerName,
+          companyName: invoiceData.companyName,
+          streetAddress: invoiceData.streetAddress,
+          city: invoiceData.city,
+          phone: invoiceData.phone,
+          items: invoiceData.items,
+          discountThreshold: invoiceData.discountThreshold,
+          discountPercentage: invoiceData.discountPercentage,
+          additionalDiscount: invoiceData.additionalDiscount,
+          taxRate: invoiceData.taxRate,
+          notes: invoiceData.notes,
+        });
+        console.log("Document written with ID: ", docRef.id);
+      } catch (e) {
+        console.error("Error adding document: ", e);
+      }
+      const animalRecordsRef = collection(db, 'animalRecords');
+
+      const batch = writeBatch(db);
+
       // for (const item of invoiceData.items) {
       //   if (item.itemNo) {
       //     const snapshot = await getDocs(animalRecordsRef);
-    
       //     snapshot.forEach(doc => {
       //       const record = doc.data();
+      //       if (record.status == "loaded out"  || record.status == "sold" || record.animalNumber == item.itemNo) {
+      //         console.log("animal already exists loaded out or sold");
+
+      //           Alert.alert("Animal already loaded out");
+      //           return;
+      //         }
+      //       if(record.animalType === 'load' && record.status === 'active') {
+      //       console.log("animal record", record);
+      //       console.log("animal record des", record.description);
+      //       if (item.itemNo == record.animalNumber) {
+      //         item.description == record.description;
+      //         batch.update(doc.ref as DocumentReference, {
+      //           status: 'loaded out',
+      //           loadOutDate: new Date().toISOString()
+      //         });
+      //       }
+      //       }
+      //       else if (record.animalType === 'sale' && record.status === 'active') {
+      //         console.log("animal record", record);
       //       const individualAnimals = record.individualAnimals || [];
-      //       console.log('item.itemNo is', item.itemNo);
-      //       console.log('individualAnimals is', individualAnimals);
-      //       // Check if this record contains the animal we want to update
       //       let hasMatchingAnimal = false;
+      //             item.description == record.description;
+
       //       individualAnimals.some((animal: any) => {
-      //         console.log('animal.id is', animal.id),
-      //         console.log('item.itemNo is', item.itemNo),
-      //         console.log('animal.status is', animal.status),
-      //         // if (animal.id === item.itemNo && animal.status === 'active') {
-      //         //   hasMatchingAnimal = true;
-      //         // }
-      //         // else {
-      //         //   hasMatchingAnimal = false;
-      //         // }
+      //       console.log("animal des", animal.description);
       //         animal.id === item.itemNo && animal.status === 'active'? hasMatchingAnimal = true : hasMatchingAnimal = false;
-      //         // hasMatchingAnimal = animal.id === item.itemNo && animal.status === 'active';
+      //         return hasMatchingAnimal;
       //       });
-      //       // console.log('hasMatchingAnimal is', hasMatchingAnimal);
+
       //       if (hasMatchingAnimal) {
       //         const updatedAnimals = individualAnimals.map((animal: any) => {
+      //             item.description == animal.description;
       //           if (animal.id === item.itemNo && animal.status === 'active') {
       //             return {
       //               ...animal,
       //               status: 'sold',
       //               salePrice: formatCurrency(calculateBalanceDue()),
+      //               sellingPrice: calculateBalanceDue(), // Add this line
       //               soldDate: new Date().toISOString()
       //             };
       //           }
       //           return animal;
       //         });
-    
       //         batch.update(doc.ref as DocumentReference, {
-      //           individualAnimals: updatedAnimals
+      //           individualAnimals: updatedAnimals,
+      //           status: 'sold',
+      //           salePrice: formatCurrency(calculateBalanceDue()),
+      //           sellingPrice: calculateBalanceDue(),
+      //           soldDate: new Date().toISOString()
       //         });
       //       }
+      //     }
       //     });
       //   }
       // }
-    
-      // try {
-      //   await batch.commit();
-      //   console.log('Animal records updated successfully');
-      // } catch (error) {
-      //   console.error('Error updating animal records:', error);
-      // }
+      for (const item of invoiceData.items) {
+        if (!item.itemNo) continue;
 
-      const animalRecordsRef = collection(db, 'animalRecords');
-const batch = writeBatch(db);
+        const snapshot = await getDocs(animalRecordsRef);
 
-for (const item of invoiceData.items) {
-  if (item.itemNo) {
-    const snapshot = await getDocs(animalRecordsRef);
+        for (const doc of snapshot.docs) {
+          const record = doc.data();
 
-    snapshot.forEach(doc => {
-      const record = doc.data();
-      const individualAnimals = record.individualAnimals || [];
-
-      let hasMatchingAnimal = false;
-
-      individualAnimals.some((animal: any) => {
-        animal.id === item.itemNo && animal.status === 'active'? hasMatchingAnimal = true : hasMatchingAnimal = false;
-        return hasMatchingAnimal;
-      });
-
-      if (hasMatchingAnimal) {
-        const updatedAnimals = individualAnimals.map((animal: any) => {
-          if (animal.id === item.itemNo && animal.status === 'active') {
-            return {
-              ...animal,
-              status: 'sold',
-              salePrice: formatCurrency(calculateBalanceDue()),
-              sellingPrice: calculateBalanceDue(), // Add this line
-              soldDate: new Date().toISOString()
-            };
+          // 🚨 Stop function if already sold or loaded out
+          if (
+            (record.status === "loaded out" || record.status === "sold") &&
+            record.animalNumber === item.itemNo
+          ) {
+            console.log("animal already exists: loaded out or sold");
+            Alert.alert(record.status === "loaded out" ? "Animal already loaded out": "Animal already sold");
+            return; // 🔴 This stops the ENTIRE enclosing function
           }
-          return animal;
-        });
 
-        batch.update(doc.ref as DocumentReference, {
-          individualAnimals: updatedAnimals,
-          status: 'sold',
-          salePrice: formatCurrency(calculateBalanceDue()),
-          sellingPrice: calculateBalanceDue(),
-          soldDate: new Date().toISOString()
-        });
+          // 🐄 Load Out Handling
+          if (record.animalType === 'load' && record.status === 'active') {
+            if (item.itemNo === record.animalNumber) {
+              item.description = record.description;
+
+              batch.update(doc.ref as DocumentReference, {
+                status: 'loaded out',
+                loadOutDate: new Date().toISOString()
+              });
+            }
+          }
+
+          // 💰 Sale Handling
+          else if (record.animalType === 'sale' && record.status === 'active') {
+            const individualAnimals = record.individualAnimals || [];
+            let hasMatchingAnimal = false;
+
+            for (const animal of individualAnimals) {
+              if (animal.id === item.itemNo && animal.status === 'active') {
+                hasMatchingAnimal = true;
+                item.description = animal.description;
+                break;
+              }
+            }
+
+            if (hasMatchingAnimal) {
+              const updatedAnimals = individualAnimals.map((animal: any) => {
+                if (animal.id === item.itemNo && animal.status === 'active') {
+                  return {
+                    ...animal,
+                    status: 'sold',
+                    salePrice: formatCurrency(calculateBalanceDue()),
+                    sellingPrice: calculateBalanceDue(),
+                    soldDate: new Date().toISOString()
+                  };
+                }
+                return animal;
+              });
+
+              batch.update(doc.ref as DocumentReference, {
+                individualAnimals: updatedAnimals,
+                status: 'sold',
+                salePrice: formatCurrency(calculateBalanceDue()),
+                sellingPrice: calculateBalanceDue(),
+                soldDate: new Date().toISOString()
+              });
+            }
+          }
+        }
       }
-    });
-  }
-}
 
-try {
-  await batch.commit();
-  console.log('Animal records updated successfully');
-} catch (error) {
-  console.error('Error updating animal records:', error);
-}
+      try {
+        await batch.commit();
+        console.log('Animal records updated successfully');
+      } catch (error) {
+        console.error('Error updating animal records:', error);
+      }
 
 
       const file = await RNHTMLtoPDF.default.convert(options);
@@ -477,7 +572,7 @@ try {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.container}
       >
@@ -583,7 +678,7 @@ try {
             <Text style={styles.cardTitle}>Items</Text>
             {/* Item Header */}
             <View style={styles.itemRowHeader}>
-            <Text style={[styles.itemCol, styles.itemColNo, styles.itemHeaderText]}>Item no.</Text>
+              <Text style={[styles.itemCol, styles.itemColNo, styles.itemHeaderText]}>Item no.</Text>
               <Text style={[styles.itemCol, styles.itemColQty, styles.itemHeaderText]}>Qty</Text>
               {/* <Text style={[styles.itemCol, styles.itemColDesc, styles.itemHeaderText]}>Description</Text> */}
               <Text style={[styles.itemCol, styles.itemColPrice, styles.itemHeaderText]}>Unit Price</Text>
@@ -616,9 +711,9 @@ try {
                 <Text style={[styles.itemCol, styles.itemColAmount, styles.itemAmountText]}>
                   {formatCurrency(calculateItemAmount(item))}
                 </Text>
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => handleRemoveItem(item.id)}
-                  style={[styles.itemCol, styles.itemColAction]} 
+                  style={[styles.itemCol, styles.itemColAction]}
                   disabled={invoiceData.items.length <= 1}
                 >
                   <Ionicons name="trash-outline" size={20} color={invoiceData.items.length > 1 ? Colors.light.error : '#ccc'} />

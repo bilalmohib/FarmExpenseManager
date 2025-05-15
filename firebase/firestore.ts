@@ -23,6 +23,7 @@
   import { ReactNode } from 'react';
   import { LoadRecord, NewLoadRecord } from '@/app/models/LoadRecord';
   import { createUserWithEmailAndPassword } from 'firebase/auth';
+  import { logActivity } from '@/app/utils/activityLogger';
 
   // Types
   export interface AnimalRecord {
@@ -37,9 +38,9 @@
     expenses: {};
     id: string;
     animalNumber: string;
-    LoadInPrice: number;
-    LoadInDate: Timestamp;
-    LoadOutDate: Timestamp;
+    LoadInPrice?: number;
+    LoadInDate?: Timestamp;
+    LoadOutDate?: Timestamp;
     collectionNames: string[];
     purchaseDate: string;
     purchasePrice: number;
@@ -219,6 +220,21 @@
       updatedAt: now,
     };
     await setDoc(docRef, record);
+    
+    // Log the activity
+    await logActivity({
+      type: 'record_added',
+      description: `Added new animal record ${data.animalNumber || data.category || 'Unknown'}`,
+      entityId: docRef.id,
+      entityType: 'animal_record',
+      action: 'create',
+      metadata: {
+        animalNumber: data.animalNumber,
+        category: data.category,
+        purchasePrice: data.purchasePrice
+      }
+    });
+    
     return record;
   };
 
@@ -318,30 +334,45 @@
 
 
   export const updateAnimalRecord = async (id: string, data: Partial<AnimalRecord>) => {
-    const docRef = doc(db, 'animalRecords', id);
+    const docRef = doc(getAnimalRecordsRef(), id);
     await updateDoc(docRef, {
       ...data,
       updatedAt: new Date().toISOString(),
+    });
+    
+    // Log the activity
+    await logActivity({
+      type: 'record_updated',
+      description: `Updated animal record ${data.animalNumber || id}`,
+      entityId: id,
+      entityType: 'animal_record',
+      action: 'update',
+      metadata: data
     });
   };
 
   export const deleteAnimalRecord = async (recordId: string): Promise<void> => {
     try {
-      const userId = getCurrentUserId();
-      const docRef = doc(db, 'animalRecords', recordId);
+      // Get the record data before deleting for logging purposes
+      const recordRef = doc(getAnimalRecordsRef(), recordId);
+      const recordSnapshot = await getDoc(recordRef);
+      const recordData = recordSnapshot.data() as AnimalRecord | undefined;
       
-      // First, check if the document exists
-      const docSnap = await getDoc(docRef);
-      if (!docSnap.exists()) {
-        throw new Error(`Record with id ${recordId} not found`);
-      }
+      // Delete the record
+      await deleteDoc(recordRef);
       
-      // No longer verify record ownership
-      
-      await deleteDoc(docRef);
-    } catch (error: any) {
-      console.error('Error deleting record:', error);
-      throw new Error(error.message || 'Failed to delete record');
+      // Log the activity
+      await logActivity({
+        type: 'record_deleted',
+        description: `Deleted animal record ${recordData?.animalNumber || recordId}`,
+        entityId: recordId,
+        entityType: 'animal_record',
+        action: 'delete',
+        metadata: recordData
+      });
+    } catch (error) {
+      console.error(`Error deleting record ${recordId}:`, error);
+      throw error;
     }
   };
 
@@ -457,86 +488,125 @@
   export const addMonthlyExpense = async (expense: Omit<MonthlyExpense, 'id' | 'createdAt' | 'updatedAt'>): Promise<MonthlyExpense> => {
     try {
       const userId = getCurrentUserId();
+      // Create a new doc reference
+      const docRef = doc(collection(db, 'monthlyExpenses'));
+      const now = new Date().toISOString();
       
-      const docRef = await addDoc(getMonthlyExpensesRef(), {
-        ...expense,
-        userId,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-      
-      const newExpense = {
+      const newExpense: MonthlyExpense = {
         ...expense,
         id: docRef.id,
-        userId,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      } as MonthlyExpense;
+        createdAt: now,
+        updatedAt: now,
+        userId
+      };
+      
+      await setDoc(docRef, newExpense);
+      
+      // Log the activity
+      await logActivity({
+        type: 'expense_added',
+        description: `Added ${expense.type} expense for ${expense.month}/${expense.year}`,
+        entityId: docRef.id,
+        entityType: 'monthly_expense',
+        action: 'create',
+        metadata: {
+          amount: expense.amount,
+          type: expense.type,
+          month: expense.month,
+          year: expense.year
+        }
+      });
       
       return newExpense;
-    } catch (error: any) {
-      console.error('Error adding monthly expense:', error);
-      throw new Error(error.message || 'Failed to add monthly expense');
+    } catch (error) {
+      console.error('Error adding expense:', error);
+      throw error;
     }
   };
 
   export const updateMonthlyExpense = async (id: string, data: Partial<MonthlyExpense>): Promise<MonthlyExpense> => {
     try {
       const userId = getCurrentUserId();
-      const docRef = doc(db, 'monthlyExpenses', id);
       
-      // First, check if the document exists and belongs to the user
+      const docRef = doc(getMonthlyExpensesRef(), id);
       const docSnap = await getDoc(docRef);
+      
       if (!docSnap.exists()) {
         throw new Error(`Expense with id ${id} not found`);
       }
       
-      const expenseData = docSnap.data();
-      if (expenseData.userId !== userId) {
-        throw new Error('Unauthorized access to expense');
+      const currentData = docSnap.data() as MonthlyExpense;
+      
+      // Ensure user can only update their own expenses or they're admin
+      if (currentData.userId && currentData.userId !== userId) {
+        throw new Error('You can only update your own expenses');
       }
       
-      // Prepare update data (remove id and userId if present)
-      const { id: _, userId: __, ...updateData } = data;
+      const updatedData = {
+        ...data,
+        updatedAt: new Date().toISOString()
+      };
       
-      await updateDoc(docRef, {
-        ...updateData,
-        updatedAt: serverTimestamp()
+      await updateDoc(docRef, updatedData);
+      
+      const updatedExpense = {
+        ...currentData,
+        ...updatedData
+      };
+      
+      // Log the activity
+      await logActivity({
+        type: 'expense_updated',
+        description: `Updated ${updatedExpense.type} expense for ${updatedExpense.month}/${updatedExpense.year}`,
+        entityId: id,
+        entityType: 'monthly_expense',
+        action: 'update',
+        metadata: {
+          amount: updatedExpense.amount,
+          type: updatedExpense.type,
+          changes: data
+        }
       });
       
-      // Fetch the updated document
-      const updatedDocSnap = await getDoc(docRef);
-      const updatedData = updatedDocSnap.data();
-      if (!updatedData) {
-        throw new Error(`Failed to retrieve updated expense data for id ${id}`);
-      }
-      return formatDocumentData<MonthlyExpense>(updatedData, updatedDocSnap.id);
-    } catch (error: any) {
-      console.error('Error updating monthly expense:', error);
-      throw new Error(error.message || 'Failed to update monthly expense');
+      return updatedExpense as MonthlyExpense;
+    } catch (error) {
+      console.error('Error updating expense:', error);
+      throw error;
     }
   };
 
   export const deleteMonthlyExpense = async (id: string): Promise<void> => {
     try {
       const userId = getCurrentUserId();
-      const docRef = doc(db, 'monthlyExpenses', id);
       
-      // First, check if the document exists and belongs to the user
+      const docRef = doc(getMonthlyExpensesRef(), id);
       const docSnap = await getDoc(docRef);
+      
       if (!docSnap.exists()) {
         throw new Error(`Expense with id ${id} not found`);
       }
       
-      const expenseData = docSnap.data();
-      if (expenseData.userId !== userId) {
-        throw new Error('Unauthorized access to expense');
+      const currentData = docSnap.data() as MonthlyExpense;
+      
+      // Ensure user can only delete their own expenses or they're admin
+      if (currentData.userId && currentData.userId !== userId) {
+        throw new Error('You can only delete your own expenses');
       }
       
       await deleteDoc(docRef);
-    } catch (error: any) {
+      
+      // Log the activity
+      await logActivity({
+        type: 'expense_deleted',
+        description: `Deleted ${currentData.type} expense for ${currentData.month}/${currentData.year}`,
+        entityId: id,
+        entityType: 'monthly_expense',
+        action: 'delete',
+        metadata: currentData
+      });
+    } catch (error) {
       console.error('Error deleting expense:', error);
-      throw new Error(error.message || 'Failed to delete expense');
+      throw error;
     }
   };
 
@@ -721,11 +791,27 @@
   };
 
   export const createUser = async (user: User): Promise<void> => {
-    const userRef = doc(db, 'users', user.id);
-    await setDoc(userRef, {
-      ...user,
-      createdAt: serverTimestamp()
-    });
+    try {
+      const docRef = doc(collection(db, 'users'));
+      await setDoc(docRef, { ...user, id: docRef.id });
+      
+      // Log the activity
+      await logActivity({
+        type: 'user_management',
+        description: `Created new user: ${user.email}`,
+        entityId: docRef.id,
+        entityType: 'user',
+        action: 'create',
+        metadata: {
+          email: user.email,
+          name: user.name,
+          permissions: user.permissions
+        }
+      });
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw error;
+    }
   };
 
   export const getUser = async (userId: string): Promise<User | null> => {
@@ -738,12 +824,30 @@
     userId: string,
     permissions: Partial<UserPermission>
   ): Promise<void> => {
-    const userRef = doc(db, 'users', userId);
-    await updateDoc(userRef, {
-      permissions: {
-        ...permissions
-      }
-    });
+    try {
+      const userRef = doc(collection(db, 'users'), userId);
+      await updateDoc(userRef, { permissions });
+      
+      // Get updated user data for logging
+      const userDoc = await getDoc(userRef);
+      const userData = userDoc.data() as User;
+      
+      // Log the activity
+      await logActivity({
+        type: 'user_management',
+        description: `Updated user permissions for: ${userData.email || userId}`,
+        entityId: userId,
+        entityType: 'user',
+        action: 'update',
+        metadata: {
+          email: userData.email,
+          permissions: permissions
+        }
+      });
+    } catch (error) {
+      console.error('Error updating user permissions:', error);
+      throw error;
+    }
   };
 
   export const createInitialAdmin = async (email: string, name: string): Promise<void> => {

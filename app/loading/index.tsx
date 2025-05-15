@@ -88,7 +88,7 @@ export default function LoadInOut() {
       setLoading(true);
       const allRecords = await getAllLoadRecords();
       // Filter only load records
-      const loadRecords = allRecords.filter(record => record.recordType === 'load');
+      const loadRecords = allRecords.filter(record => record.recordType === 'load' && record.status === 'loaded out');
       setRecords(loadRecords);
     } catch (error) {
       console.error('Error loading records:', error);

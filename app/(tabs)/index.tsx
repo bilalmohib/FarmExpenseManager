@@ -387,6 +387,17 @@ console.log("Permissions:", permissions);
               <Text style={styles.actionText}>Manage Users</Text>
             </TouchableOpacity>
           )}
+          {permissions.canManageUsers && (
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/admin/activity_log')}
+            >
+              <View style={[styles.actionIconContainer, { backgroundColor: '#b53f3f' }]}> 
+                <Ionicons name="code-working" size={32} color="#FFFFFF" />
+              </View>
+              <Text style={styles.actionText}>Activity Logs</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     </ScrollView>

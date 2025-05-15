@@ -23,6 +23,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { AnimalRecord, HealthRecord, BreedingRecord, VaccinationRecord, AnimalExpense } from '../../../firebase/firestore';
 import { getFirestore, collection, getDocs } from "firebase/firestore";
 import { db } from '../../../firebase/config';
+import { logActivity } from '../../admin/activity_log';
 
 interface FormData {
   animalNumber: string;
@@ -126,19 +127,27 @@ export default function NewRecordScreen(): React.ReactElement {
       return;
     }
 
-    const querySnapshot = await getDocs(collection(db, "animalRecords"));
-
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      if (data.animalNumber == formData.animalNumber) {
-        console.log("Animal Number already exists:", data.animalNumber);
-        Alert.alert('Error', 'Animal number already exists in the database');
-        return;
-        // animalNumbers.push(data.animalNumber);
-      }
-    });
     try {
       setLoading(true);
+      
+      // Check if animal number already exists
+      const querySnapshot = await getDocs(collection(db, "animalRecords"));
+      let isDuplicate = false;
+
+      for (const doc of querySnapshot.docs) {
+        const data = doc.data();
+        if (data.animalNumber === formData.animalNumber.trim()) {
+          console.log("Animal Number already exists:", data.animalNumber);
+          isDuplicate = true;
+          break;
+        }
+      }
+
+      if (isDuplicate) {
+        Alert.alert('Error', 'Animal with this number already exists in the database. Please enter a different animal number');
+        setLoading(false);
+        return;
+      }
       
       // Calculate individual animal expenses and profits
       const quantity = formData.isBulk ? parseInt(formData.quantity) : 1;
@@ -147,11 +156,13 @@ export default function NewRecordScreen(): React.ReactElement {
 
       // Handle sold date and price based on status
       const soldDate = formData.status === 'loaded out' ? formData.loadOutDate.toISOString() : '';
-      await addLoadRecord({
+      
+      // Create the load record data
+      const loadRecordData = {
         ...formData,
         animalNumber: formData.animalNumber.trim(),
         loadInDate: formData.LoadInDate,
-        LoadInPrice: formData.LoadInPrice,
+        LoadInPrice: parseFloat(formData.LoadInPrice) || 0, // Convert to number to fix the type error
         ownerDetail: formData.ownerDetails,
         gender: formData.gender,
         status: formData.status,
@@ -164,7 +175,27 @@ export default function NewRecordScreen(): React.ReactElement {
         animalType: '',
         recordType: 'load',
         collectionNames: formData.collectionNames
-      });
+      };
+      
+      // Add the load record
+      await addLoadRecord(loadRecordData);
+      
+      // Log the activity
+      await logActivity(
+        'load_in',
+        `New animal loaded in: ${formData.animalNumber.trim()}`,
+        formData.animalNumber,
+        {
+          entityId: formData.animalNumber.trim(),
+          entityType: 'load',
+          action: 'create',
+          metadata: {
+            category: formData.category,
+            price: formData.LoadInPrice,
+            date: formData.LoadInDate.toISOString()
+          }
+        }
+      );
       
       Alert.alert('Success', 'Animal record added successfully', [
         { text: 'OK', onPress: () => router.back() }
